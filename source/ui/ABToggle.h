@@ -14,6 +14,9 @@ namespace benchmark::ui
         ~ABToggle() override;
 
         void toggle();
+
+        /** Shown under the REFERENCE label; empty means no reference is ready. */
+        void setReferenceName (const juce::String& name);
         bool isReferenceSelected() const noexcept { return isReference; }
 
         void paint (juce::Graphics&) override;
@@ -30,6 +33,7 @@ namespace benchmark::ui
         juce::ParameterAttachment attachment;
 
         bool isReference = false;
+        juce::String referenceName;
         float highlightPosition = 0.0f; // 0 = Mix, 1 = Reference (animated)
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ABToggle)

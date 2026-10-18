@@ -4,12 +4,17 @@
 
 #include "PluginProcessor.h"
 #include "ui/ABToggle.h"
+#include "ui/LoudnessPanel.h"
 #include "ui/PlaceholderPanel.h"
+#include "ui/ReferenceListPanel.h"
 #include "ui/Theme.h"
 
 namespace benchmark
 {
-    class BenchmarkEditor final : public juce::AudioProcessorEditor
+    class BenchmarkEditor final : public juce::AudioProcessorEditor,
+                                  public juce::FileDragAndDropTarget,
+                                  private juce::ChangeListener,
+                                  private juce::Timer
     {
     public:
         explicit BenchmarkEditor (BenchmarkProcessor&);
@@ -21,17 +26,30 @@ namespace benchmark
         void visibilityChanged() override;
         void mouseDown (const juce::MouseEvent&) override;
 
+        bool isInterestedInFileDrag (const juce::StringArray& files) override;
+        void fileDragEnter (const juce::StringArray&, int, int) override;
+        void fileDragExit (const juce::StringArray&) override;
+        void filesDropped (const juce::StringArray& files, int, int) override;
+
     private:
+        void changeListenerCallback (juce::ChangeBroadcaster*) override;
+        void timerCallback() override;
+        void showMessage (const juce::String& text);
+        void updateReferenceName();
+
         BenchmarkProcessor& processor;
         ui::Theme theme;
+        juce::TooltipWindow tooltips { this, 600 };
 
         ui::ABToggle abToggle;
-        ui::PlaceholderPanel referenceList { "References", "Drop audio files here (coming in Phase 2)" };
+        ui::ReferenceListPanel referenceList;
+        ui::LoudnessPanel loudness;
         ui::PlaceholderPanel waveform { "Reference Transport", "Waveform, playhead and loops (Phase 3)" };
-        ui::PlaceholderPanel loudness { "Loudness", "LUFS readouts and match offset (Phase 2)" };
         ui::PlaceholderPanel analysis { "Comparison", "Tonal balance, stereo width and dynamics (Phase 4)" };
 
         juce::Rectangle<int> headerArea;
+        juce::String message;
+        juce::uint32 messageExpiry = 0;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BenchmarkEditor)
     };

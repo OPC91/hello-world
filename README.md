@@ -4,7 +4,19 @@ Benchmark (working name) is a mix-referencing plugin. Put it on your master bus,
 
 Formats: **VST3**, **AU** (macOS) and **Standalone**, built with C++20, JUCE 8 and CMake.
 
-> **Status:** Phase 1 of 5. The plugin builds, passes audio through unchanged, saves its state, and shows the UI layout. Loading references, A/B switching and loudness matching come in Phase 2.
+> **Status:** Phase 2 of 5. Reference loading, A/B switching and loudness matching work. The waveform/transport, analysis displays and band solo come in later phases.
+
+## Using it
+
+1. Put Benchmark on your **master bus**, as the last plugin.
+2. Drag up to 12 reference tracks (WAV, AIFF, FLAC or MP3) onto the window, or click **Add references**. They decode and convert to your session's sample rate in the background. Click one to make it active.
+3. Click **MIX / REFERENCE** or press the **space bar** to switch. The switch uses a 15 ms equal-power crossfade, so there are no clicks. The switch is also a host parameter ("Mix / Reference"), so you can automate it or map it to a controller.
+4. With **Match** on, whichever source is louder is turned down so both play at the same integrated loudness (ITU-R BS.1770-4). Nothing is ever turned up. The panel shows what is being turned down and by how much.
+   - Your mix is measured continuously, whichever source you are listening to. Silence is ignored. Click **Reset** to restart the measurement after you change the mix or move to a different section.
+   - When the mix is the louder source, Benchmark turns your mix down. **Bypass or remove Benchmark before you bounce or export.**
+5. Missing reference files stay in the list in red. Click one to find the file again. Right-click a reference for more options.
+
+Memory: references are stored decoded in memory, at about 11.5 MB per stereo minute at 48 kHz. Above 1.5 GB in total, the least recently used references are unloaded and reload when you select them.
 
 ## Requirements
 
@@ -82,6 +94,8 @@ Download [pluginval](https://github.com/Tracktion/pluginval/releases) and run:
 ```bash
 pluginval --strictness-level 10 --validate-in-process --validate build/Benchmark_artefacts/Release/VST3/Benchmark.vst3
 ```
+
+To render the editor to PNG files for a visual check: `BENCHMARK_SNAPSHOT_DIR=/some/dir ./build/tests/BenchmarkTests "[.snapshot]"`.
 
 CI (`.github/workflows/ci.yml`) builds on Linux, macOS and Windows. It runs the unit tests and pluginval at strictness 10 on every push, and on macOS it also runs `auval`.
 

@@ -23,6 +23,15 @@ namespace benchmark::ui
         select (! isReference);
     }
 
+    void ABToggle::setReferenceName (const juce::String& name)
+    {
+        if (name != referenceName)
+        {
+            referenceName = name;
+            repaint();
+        }
+    }
+
     void ABToggle::select (bool reference)
     {
         attachment.setValueAsCompleteGesture (reference ? 1.0f : 0.0f);
@@ -88,13 +97,15 @@ namespace benchmark::ui
             g.drawText (text, area.withTrimmedBottom (area.getHeight() * 0.3f), juce::Justification::centredBottom);
             g.setColour (textColour.withMultipliedAlpha (0.7f));
             g.setFont (theme.font (11.0f));
-            g.drawText (sub, area.withTrimmedTop (area.getHeight() * 0.7f), juce::Justification::centredTop);
+            g.drawText (sub, area.withTrimmedTop (area.getHeight() * 0.7f).reduced (theme.px (10.0f), 0.0f),
+                        juce::Justification::centredTop, true);
         };
 
         auto left = bounds.withWidth (bounds.getWidth() * 0.5f);
         auto right = left.withX (bounds.getCentreX());
         drawLabel (left, "MIX", "host input", Colours::mix, 1.0f - highlightPosition);
-        drawLabel (right, "REFERENCE", "loaded track", Colours::reference, highlightPosition);
+        drawLabel (right, "REFERENCE", referenceName.isNotEmpty() ? referenceName : juce::String ("no reference ready"),
+                   Colours::reference, highlightPosition);
     }
 
     std::unique_ptr<juce::AccessibilityHandler> ABToggle::createAccessibilityHandler()

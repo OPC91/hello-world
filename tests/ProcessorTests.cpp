@@ -158,3 +158,183 @@ TEST_CASE ("Corrupt or foreign state is ignored", "[state]")
 
     CHECK (juce::exactlyEqual (getParam (processor, ParamIDs::listenRef), 1.0f));
 }
+
+//==============================================================================
+#include "TestHelpers.h"
+#include <catch2/catch_approx.hpp>
+
+namespace
+{
+    struct ProcessorWithReference
+    {
+        juce::ScopedJuceInitialiser_GUI juceInit;
+        testing::TempDir temp;
+        BenchmarkProcessor processor;
+        static constexpr double sampleRate = 48000.0;
+        static constexpr int blockSize = 256;
+
+        explicit ProcessorWithReference (const juce::AudioBuffer<float>& referenceAudio)
+        {
+            processor.prepareToPlay (sampleRate, blockSize);
+            const auto file = temp / "reference.wav";
+            testing::writeWav (file, referenceAudio, sampleRate);
+            processor.getReferenceLibrary().addFiles ({ file });
+            REQUIRE (processor.getReferenceLibrary().waitUntilLoaded (20000));
+            setParam (processor, ParamIDs::loudnessMatch, 0.0f);
+        }
+
+        /** Runs `seconds` of the given constant-per-channel input; returns the output. */
+        juce::AudioBuffer<float> run (const juce::AudioBuffer<float>& input)
+        {
+            juce::AudioBuffer<float> output (input);
+            juce::MidiBuffer midi;
+
+            for (int start = 0; start < output.getNumSamples(); start += blockSize)
+            {
+                const auto n = std::min (blockSize, output.getNumSamples() - start);
+                juce::AudioBuffer<float> view (output.getArrayOfWritePointers(), output.getNumChannels(), start, n);
+                processor.processBlock (view, midi);
+            }
+
+            return output;
+        }
+    };
+
+    juce::AudioBuffer<float> constant (float value, int numSamples)
+    {
+        juce::AudioBuffer<float> b (2, numSamples);
+        for (int ch = 0; ch < 2; ++ch)
+            juce::FloatVectorOperations::fill (b.getWritePointer (ch), value, numSamples);
+        return b;
+    }
+}
+
+TEST_CASE ("A/B switches between mix and reference with a smooth crossfade", "[processor][ab]")
+{
+    // Reference is a constant -0.25 (24-bit WAV), mix is a constant +0.5.
+    ProcessorWithReference p (constant (-0.25f, 48000));
+
+    const auto mixOnly = p.run (constant (0.5f, 4800));
+    CHECK (mixOnly.getSample (0, 4799) == Catch::Approx (0.5f));
+
+    setParam (p.processor, ParamIDs::listenRef, 1.0f);
+    const auto switched = p.run (constant (0.5f, 4800));
+
+    float maxDelta = std::abs (switched.getSample (0, 0) - 0.5f);
+    for (int i = 1; i < switched.getNumSamples(); ++i)
+        maxDelta = std::max (maxDelta, std::abs (switched.getSample (0, i) - switched.getSample (0, i - 1)));
+
+    CHECK (maxDelta < 0.005f); // no click
+    CHECK (switched.getSample (0, 4799) == Catch::Approx (-0.25f).margin (1e-4));
+    CHECK (switched.getSample (1, 4799) == Catch::Approx (-0.25f).margin (1e-4));
+
+    // Back to the mix.
+    setParam (p.processor, ParamIDs::listenRef, 0.0f);
+    const auto back = p.run (constant (0.5f, 4800));
+    CHECK (back.getSample (0, 4799) == Catch::Approx (0.5f));
+
+    // Bypass always plays the mix.
+    setParam (p.processor, ParamIDs::listenRef, 1.0f);
+    setParam (p.processor, ParamIDs::bypass, 1.0f);
+    const auto bypassed = p.run (constant (0.5f, 4800));
+    CHECK (bypassed.getSample (0, 4799) == Catch::Approx (0.5f));
+}
+
+TEST_CASE ("Without a reference, Reference mode keeps playing the mix", "[processor][ab]")
+{
+    juce::ScopedJuceInitialiser_GUI juceInit;
+    BenchmarkProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+    setParam (processor, ParamIDs::listenRef, 1.0f);
+
+    juce::AudioBuffer<float> buffer (2, 512);
+    fillWithNoise (buffer, 3);
+    juce::AudioBuffer<float> expected (buffer);
+    juce::MidiBuffer midi;
+    processor.processBlock (buffer, midi);
+
+    for (int i = 0; i < 512; ++i)
+        REQUIRE (juce::exactlyEqual (buffer.getSample (0, i), expected.getSample (0, i)));
+}
+
+TEST_CASE ("Loudness matching turns the louder source down", "[processor][match]")
+{
+    constexpr double sr = ProcessorWithReference::sampleRate;
+
+    SECTION ("Mix louder than reference")
+    {
+        ProcessorWithReference p (testing::makeSine (sr, 10.0, 1000.0, -23.0)); // -23 LUFS
+        setParam (p.processor, ParamIDs::loudnessMatch, 1.0f);
+        p.run (testing::makeSine (sr, 6.0, 500.0, -14.0));                       // about -14 LUFS
+
+        const auto& r = p.processor.getReadings();
+        CHECK (r.mixGainDb.load() == Catch::Approx (r.referenceIntegrated.load() - r.mixIntegrated.load()).margin (0.05));
+        CHECK (r.mixGainDb.load() < -8.0f);
+        CHECK (r.referenceGainDb.load() == Catch::Approx (0.0f).margin (1e-3));
+    }
+
+    SECTION ("Reference louder than mix")
+    {
+        ProcessorWithReference p (testing::makeSine (sr, 10.0, 1000.0, -10.0)); // -10 LUFS
+        setParam (p.processor, ParamIDs::loudnessMatch, 1.0f);
+        p.run (testing::makeSine (sr, 6.0, 1000.0, -20.0));                      // -20 LUFS
+
+        const auto& r = p.processor.getReadings();
+        CHECK (r.mixIntegrated.load() == Catch::Approx (-20.0).margin (0.1));
+        CHECK (r.referenceIntegrated.load() == Catch::Approx (-10.0).margin (0.1));
+        CHECK (r.referenceGainDb.load() == Catch::Approx (-10.0).margin (0.15));
+        CHECK (r.mixGainDb.load() == Catch::Approx (0.0f).margin (1e-3));
+
+        // Listening to the reference now gives the mix's loudness.
+        setParam (p.processor, ParamIDs::listenRef, 1.0f);
+        const auto out = p.run (testing::makeSine (sr, 4.0, 1000.0, -20.0));
+        const auto rms = out.getRMSLevel (0, 48000, 48000 * 3);
+        CHECK (juce::Decibels::gainToDecibels (rms) == Catch::Approx (-20.0 - 3.01).margin (0.2)); // sine RMS = peak - 3 dB
+    }
+
+    SECTION ("Match off applies no gain")
+    {
+        ProcessorWithReference p (testing::makeSine (sr, 10.0, 1000.0, -23.0));
+        p.run (testing::makeSine (sr, 4.0, 1000.0, -14.0));
+        CHECK (p.processor.getReadings().mixGainDb.load() == Catch::Approx (0.0f).margin (1e-3));
+    }
+}
+
+TEST_CASE ("Processor state includes the reference list", "[state][library]")
+{
+    juce::ScopedJuceInitialiser_GUI juceInit;
+    testing::TempDir temp;
+    const auto file = temp / "ref.wav";
+    testing::writeWav (file, testing::makeSine (48000.0, 1.0, 1000.0, -20.0), 48000.0);
+
+    juce::MemoryBlock saved;
+    {
+        BenchmarkProcessor source;
+        source.prepareToPlay (48000.0, 512);
+        source.getReferenceLibrary().addFiles ({ file });
+        source.getStateInformation (saved);
+    }
+
+    BenchmarkProcessor restored;
+    restored.prepareToPlay (48000.0, 512);
+    restored.setStateInformation (saved.getData(), (int) saved.getSize());
+    REQUIRE (restored.getReferenceLibrary().waitUntilLoaded (20000));
+
+    REQUIRE (restored.getReferenceLibrary().size() == 1);
+    CHECK (restored.getReferenceLibrary()[0].file == file);
+    CHECK (restored.getReferenceLibrary().getActiveIndex() == 0);
+    CHECK (restored.getReferenceLibrary()[0].status == benchmark::ReferenceLibrary::Status::ready);
+
+    // Saving again doesn't duplicate the list.
+    juce::MemoryBlock again;
+    restored.getStateInformation (again);
+    const auto xml = juce::AudioProcessor::getXmlFromBinary (again.getData(), (int) again.getSize());
+    REQUIRE (xml != nullptr);
+    CHECK (xml->getNumChildElements() > 0);
+
+    int referenceLists = 0;
+    for (auto* child : xml->getChildIterator())
+        if (child->hasTagName ("References"))
+            ++referenceLists;
+    CHECK (referenceLists == 1);
+}

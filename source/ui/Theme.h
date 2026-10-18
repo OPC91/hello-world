@@ -35,10 +35,22 @@ namespace benchmark::ui
         float px (float baseValue) const noexcept { return baseValue * scale; }
 
         void drawCornerResizer (juce::Graphics&, int w, int h, bool isMouseOver, bool isMouseDragging) override;
+        void drawToggleButton (juce::Graphics&, juce::ToggleButton&, bool highlighted, bool down) override;
+        void drawButtonBackground (juce::Graphics&, juce::Button&, const juce::Colour& background, bool highlighted, bool down) override;
+        juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override;
+        juce::Font getPopupMenuFont() override;
+        void drawTooltip (juce::Graphics&, const juce::String& text, int width, int height) override;
+        juce::Rectangle<int> getTooltipBounds (const juce::String& text, juce::Point<int> screenPos, juce::Rectangle<int> parentArea) override;
 
     private:
         float scale = 1.0f;
     };
+
+    /** Formats a loudness value, e.g. "-9.4" or "--" when there is no measurement. */
+    juce::String formatLufs (float lufs);
+
+    /** Formats a duration as m:ss. */
+    juce::String formatDuration (double seconds);
 
     // Components fetch the editor's Theme through their LookAndFeel.
     inline Theme& getTheme (juce::Component& c)

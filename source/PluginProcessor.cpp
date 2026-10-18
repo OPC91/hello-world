@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "Parameters.h"
+#include "dsp/GainMatcher.h"
 
 namespace benchmark
 {
@@ -16,14 +17,59 @@ namespace benchmark
         : AudioProcessor (BusesProperties()
                               .withInput ("Input", juce::AudioChannelSet::stereo(), true)
                               .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
-          parameters (*this, nullptr, StateIDs::root, createParameterLayout())
+          parameters (*this, nullptr, StateIDs::root, createParameterLayout()),
+          library (referenceHandoff)
     {
         bypassValue = parameters.getRawParameterValue (ParamIDs::bypass);
+        listenReferenceValue = parameters.getRawParameterValue (ParamIDs::listenRef);
+        loudnessMatchValue = parameters.getRawParameterValue (ParamIDs::loudnessMatch);
+
+        // Create the weak-reference master now, on the constructing thread, so that
+        // setStateInformation() can safely take weak references from any thread.
+        [[maybe_unused]] const juce::WeakReference<BenchmarkProcessor> init (this);
+    }
+
+    BenchmarkProcessor::~BenchmarkProcessor()
+    {
+        cancelPendingUpdate();
     }
 
     //==============================================================================
-    void BenchmarkProcessor::prepareToPlay (double, int)
+    void BenchmarkProcessor::prepareToPlay (double sampleRate, int maximumExpectedSamplesPerBlock)
     {
+        currentSampleRate = sampleRate;
+        const auto numChannels = juce::jlimit (1, 2, getTotalNumOutputChannels());
+
+        scratchCapacity = juce::jmax (maximumExpectedSamplesPerBlock, 256);
+        referenceScratch.setSize (2, scratchCapacity, false, true, false);
+
+        mixMeter.prepare (sampleRate, numChannels);
+        referenceMeter.prepare (sampleRate, numChannels);
+        crossfader.setTarget (false);
+        crossfader.prepare (sampleRate);
+        player.reset();
+
+        for (auto* g : { &mixGain, &referenceGain })
+        {
+            g->reset (sampleRate, gainSmoothingSeconds);
+            g->setCurrentAndTargetValue (1.0f);
+        }
+
+        lastReference = nullptr;
+        lastMeterUpdate = 0;
+
+        // The library resamples references to this rate on its own threads.
+        hostSampleRate.store (sampleRate);
+
+        if (juce::MessageManager::existsAndIsCurrentThread())
+            library.setTargetSampleRate (sampleRate);
+        else
+            triggerAsyncUpdate();
+    }
+
+    void BenchmarkProcessor::handleAsyncUpdate()
+    {
+        library.setTargetSampleRate (hostSampleRate.load());
     }
 
     void BenchmarkProcessor::releaseResources()
@@ -41,21 +87,113 @@ namespace benchmark
         return layouts.getMainInputChannelSet() == out;
     }
 
+    //==============================================================================
     void BenchmarkProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
     {
         juce::ScopedNoDenormals noDenormals;
         midi.clear();
 
+        const auto numSamples = buffer.getNumSamples();
         const auto numInputs = getTotalNumInputChannels();
         const auto numOutputs = getTotalNumOutputChannels();
 
         for (auto ch = numInputs; ch < numOutputs; ++ch)
-            buffer.clear (ch, 0, buffer.getNumSamples());
+            buffer.clear (ch, 0, numSamples);
 
-        if (bypassValue->load (std::memory_order_relaxed) >= 0.5f)
+        const auto numChannels = juce::jmin (numOutputs, buffer.getNumChannels(), 2);
+
+        if (numSamples == 0 || numChannels == 0 || scratchCapacity == 0)
             return;
 
-        // Phase 1: the host signal ("Mix") passes through unchanged.
+        const ScopedHandoffAccess<ReferenceAudio> access (referenceHandoff);
+        const auto* reference = access.get();
+
+        // A reference prepared for another sample rate is being reloaded; treat it as absent.
+        if (reference != nullptr && std::abs (reference->sampleRate - currentSampleRate) > 1e-6)
+            reference = nullptr;
+
+        if (reference != lastReference)
+        {
+            referenceMeter.reset();
+            lastReference = reference;
+        }
+
+        if (resetMixRequested.exchange (false))
+            mixMeter.reset();
+
+        const auto bypassed = bypassValue->load (std::memory_order_relaxed) >= 0.5f;
+        const auto listenToReference = listenReferenceValue->load (std::memory_order_relaxed) >= 0.5f;
+        const auto matchLoudness = loudnessMatchValue->load (std::memory_order_relaxed) >= 0.5f;
+
+        const auto referenceLufs = reference != nullptr ? reference->info.integratedFor (numChannels) : LiveReadings::noValue;
+
+        dsp::MatchGains gains;
+        if (matchLoudness && reference != nullptr && ! bypassed)
+            gains = dsp::computeMatchGains (mixMeter.getIntegrated(), referenceLufs);
+
+        mixGain.setTargetValue (juce::Decibels::decibelsToGain (gains.mixDb));
+        referenceGain.setTargetValue (juce::Decibels::decibelsToGain (gains.referenceDb));
+        crossfader.setTarget (! bypassed && listenToReference && reference != nullptr);
+
+        // Process in chunks no larger than the scratch buffer, so hosts that send
+        // bigger blocks than announced never cause an allocation.
+        float* channels[2] {};
+        for (int start = 0; start < numSamples; start += scratchCapacity)
+        {
+            const auto n = juce::jmin (scratchCapacity, numSamples - start);
+
+            for (int ch = 0; ch < numChannels; ++ch)
+                channels[ch] = buffer.getWritePointer (ch, start);
+
+            processChunk (channels, numChannels, n, reference);
+        }
+
+        // Publish readings for the UI.
+        readings.mixMomentary.store (mixMeter.getMomentary(), std::memory_order_relaxed);
+        readings.mixShortTerm.store (mixMeter.getShortTerm(), std::memory_order_relaxed);
+        readings.mixIntegrated.store (mixMeter.getIntegrated(), std::memory_order_relaxed);
+        readings.referenceShortTerm.store (reference != nullptr ? referenceMeter.getShortTerm() : LiveReadings::noValue, std::memory_order_relaxed);
+        readings.referenceIntegrated.store (referenceLufs, std::memory_order_relaxed);
+        readings.mixGainDb.store (juce::Decibels::gainToDecibels (mixGain.getCurrentValue()), std::memory_order_relaxed);
+        readings.referenceGainDb.store (juce::Decibels::gainToDecibels (referenceGain.getCurrentValue()), std::memory_order_relaxed);
+        readings.referenceAvailable.store (reference != nullptr, std::memory_order_relaxed);
+        readings.crossfadePosition.store (crossfader.getPosition(), std::memory_order_relaxed);
+    }
+
+    void BenchmarkProcessor::processChunk (float* const* channels, int numChannels, int numSamples, const ReferenceAudio* reference) noexcept
+    {
+        // The mix is always measured at the input, whichever source is audible.
+        mixMeter.process (channels, numChannels, numSamples);
+
+        float* refChannels[2] { referenceScratch.getWritePointer (0), referenceScratch.getWritePointer (1) };
+
+        if (reference != nullptr)
+        {
+            player.render (*reference, refChannels, numChannels, numSamples);
+            referenceMeter.process (refChannels, numChannels, numSamples);
+        }
+
+        // Fast path: only the untouched mix is audible.
+        if (crossfader.isFullyA() && ! mixGain.isSmoothing() && juce::exactlyEqual (mixGain.getCurrentValue(), 1.0f))
+        {
+            referenceGain.skip (numSamples);
+            return;
+        }
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            float fadeMix, fadeRef;
+            crossfader.next (fadeMix, fadeRef);
+
+            const auto gMix = mixGain.getNextValue() * fadeMix;
+            const auto gRef = referenceGain.getNextValue() * fadeRef;
+
+            for (int ch = 0; ch < numChannels; ++ch)
+            {
+                const auto ref = reference != nullptr ? refChannels[ch][i] : 0.0f;
+                channels[ch][i] = channels[ch][i] * gMix + ref * gRef;
+            }
+        }
     }
 
     juce::AudioProcessorParameter* BenchmarkProcessor::getBypassParameter() const
@@ -75,6 +213,9 @@ namespace benchmark
         auto state = parameters.copyState();
         state.setProperty (StateIDs::version, stateVersion, nullptr);
 
+        state.removeChild (state.getChildWithName (ReferenceLibrary::stateType), nullptr);
+        state.appendChild (library.getStateSnapshot(), nullptr);
+
         if (auto xml = state.createXml())
             copyXmlToBinary (*xml, destData);
     }
@@ -86,7 +227,30 @@ namespace benchmark
         if (xml == nullptr || ! xml->hasTagName (parameters.state.getType()))
             return; // Unknown or corrupt data: keep current state.
 
-        parameters.replaceState (juce::ValueTree::fromXml (*xml));
+        auto state = juce::ValueTree::fromXml (*xml);
+
+        if (juce::MessageManager::existsAndIsCurrentThread())
+        {
+            restoreState (state);
+            return;
+        }
+
+        // Some hosts restore state from a background thread; the library lives on the message thread.
+        juce::MessageManager::callAsync ([safeThis = juce::WeakReference<BenchmarkProcessor> (this), state]
+        {
+            if (auto* self = safeThis.get())
+                self->restoreState (state);
+        });
+    }
+
+    void BenchmarkProcessor::restoreState (const juce::ValueTree& source)
+    {
+        auto state = source.createCopy();
+        const auto references = state.getChildWithName (ReferenceLibrary::stateType);
+        state.removeChild (references, nullptr);
+
+        parameters.replaceState (state);
+        library.restoreState (references.isValid() ? references : juce::ValueTree (ReferenceLibrary::stateType));
     }
 
     juce::Point<int> BenchmarkProcessor::getSavedEditorSize() const

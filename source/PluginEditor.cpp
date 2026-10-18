@@ -6,7 +6,9 @@ namespace benchmark
     BenchmarkEditor::BenchmarkEditor (BenchmarkProcessor& p)
         : AudioProcessorEditor (p),
           processor (p),
-          abToggle (*p.getValueTreeState().getParameter (ParamIDs::listenRef))
+          abToggle (*p.getValueTreeState().getParameter (ParamIDs::listenRef)),
+          referenceList (p.getReferenceLibrary()),
+          loudness (p)
     {
         setLookAndFeel (&theme);
 
@@ -15,6 +17,15 @@ namespace benchmark
 
         setWantsKeyboardFocus (true);
         addMouseListener (this, true); // clicks anywhere give the editor key focus for the space bar
+
+        auto& library = processor.getReferenceLibrary();
+        library.addChangeListener (this);
+        library.onMessage = [safeThis = juce::Component::SafePointer<BenchmarkEditor> (this)] (const juce::String& text)
+        {
+            if (safeThis != nullptr)
+                safeThis->showMessage (text);
+        };
+        updateReferenceName();
 
         setResizable (true, true);
         if (auto* sizeLimits = getConstrainer())
@@ -32,9 +43,13 @@ namespace benchmark
 
     BenchmarkEditor::~BenchmarkEditor()
     {
+        auto& library = processor.getReferenceLibrary();
+        library.removeChangeListener (this);
+        library.onMessage = nullptr;
         setLookAndFeel (nullptr);
     }
 
+    //==============================================================================
     void BenchmarkEditor::paint (juce::Graphics& g)
     {
         g.fillAll (ui::Colours::background);
@@ -54,9 +69,18 @@ namespace benchmark
         g.setFont (theme.font (16.0f, true).withExtraKerningFactor (0.25f));
         g.drawText ("BENCHMARK", header, juce::Justification::centredLeft);
 
-        g.setColour (ui::Colours::textMuted);
-        g.setFont (theme.font (11.0f));
-        g.drawText ("v" BENCHMARK_VERSION_STRING "  |  space: Mix / Reference", header, juce::Justification::centredRight);
+        if (message.isNotEmpty())
+        {
+            g.setColour (ui::Colours::reference);
+            g.setFont (theme.font (12.0f, true));
+            g.drawText (message, header.withTrimmedLeft (theme.px (150.0f)), juce::Justification::centredRight, true);
+        }
+        else
+        {
+            g.setColour (ui::Colours::textMuted);
+            g.setFont (theme.font (11.0f));
+            g.drawText ("v" BENCHMARK_VERSION_STRING "  |  space: Mix / Reference", header, juce::Justification::centredRight);
+        }
     }
 
     void BenchmarkEditor::resized()
@@ -71,14 +95,14 @@ namespace benchmark
         area.reduce (gap, 0);
         area.removeFromBottom (gap);
 
-        referenceList.setBounds (area.removeFromLeft (juce::roundToInt ((float) area.getWidth() * 0.24f)));
+        referenceList.setBounds (area.removeFromLeft (juce::roundToInt ((float) area.getWidth() * 0.26f)));
         area.removeFromLeft (gap);
 
-        waveform.setBounds (area.removeFromTop (juce::roundToInt ((float) area.getHeight() * 0.28f)));
+        waveform.setBounds (area.removeFromTop (juce::roundToInt ((float) area.getHeight() * 0.26f)));
         area.removeFromTop (gap);
 
-        auto controls = area.removeFromTop (juce::roundToInt (theme.px (96.0f)));
-        abToggle.setBounds (controls.removeFromLeft (juce::roundToInt ((float) controls.getWidth() * 0.58f)));
+        auto controls = area.removeFromTop (juce::roundToInt (theme.px (112.0f)));
+        abToggle.setBounds (controls.removeFromLeft (juce::roundToInt ((float) controls.getWidth() * 0.52f)));
         controls.removeFromLeft (gap);
         loudness.setBounds (controls);
         area.removeFromTop (gap);
@@ -89,6 +113,7 @@ namespace benchmark
         repaint();
     }
 
+    //==============================================================================
     bool BenchmarkEditor::keyPressed (const juce::KeyPress& key)
     {
         if (key == juce::KeyPress::spaceKey)
@@ -109,5 +134,68 @@ namespace benchmark
     void BenchmarkEditor::mouseDown (const juce::MouseEvent&)
     {
         grabKeyboardFocus();
+    }
+
+    //==============================================================================
+    bool BenchmarkEditor::isInterestedInFileDrag (const juce::StringArray& files)
+    {
+        return std::any_of (files.begin(), files.end(),
+                            [] (const juce::String& f) { return ReferenceDecoder::isSupportedFile (juce::File (f)); });
+    }
+
+    void BenchmarkEditor::fileDragEnter (const juce::StringArray&, int, int)
+    {
+        referenceList.setDropHighlight (true);
+    }
+
+    void BenchmarkEditor::fileDragExit (const juce::StringArray&)
+    {
+        referenceList.setDropHighlight (false);
+    }
+
+    void BenchmarkEditor::filesDropped (const juce::StringArray& files, int, int)
+    {
+        referenceList.setDropHighlight (false);
+
+        juce::Array<juce::File> list;
+        for (const auto& f : files)
+            list.add (juce::File (f));
+
+        processor.getReferenceLibrary().addFiles (list);
+    }
+
+    //==============================================================================
+    void BenchmarkEditor::changeListenerCallback (juce::ChangeBroadcaster*)
+    {
+        updateReferenceName();
+    }
+
+    void BenchmarkEditor::updateReferenceName()
+    {
+        const auto* active = processor.getReferenceLibrary().getActive();
+
+        juce::String name;
+        if (active != nullptr)
+            name = active->status == ReferenceLibrary::Status::loading ? active->name + " (loading)" : active->name;
+
+        abToggle.setReferenceName (name);
+    }
+
+    void BenchmarkEditor::showMessage (const juce::String& text)
+    {
+        message = text;
+        messageExpiry = juce::Time::getMillisecondCounter() + 6000;
+        startTimerHz (2);
+        repaint (headerArea);
+    }
+
+    void BenchmarkEditor::timerCallback()
+    {
+        if (juce::Time::getMillisecondCounter() >= messageExpiry)
+        {
+            message.clear();
+            stopTimer();
+            repaint (headerArea);
+        }
     }
 }

@@ -2,13 +2,36 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include "dsp/Crossfader.h"
+#include "dsp/LoudnessMeter.h"
+#include "dsp/ReferencePlayer.h"
+#include "reference/ReferenceLibrary.h"
+#include "util/RealtimeHandoff.h"
+
 namespace benchmark
 {
-    class BenchmarkProcessor final : public juce::AudioProcessor
+    /** Values written by the audio thread and read by the UI. */
+    struct LiveReadings
+    {
+        static constexpr float noValue = -std::numeric_limits<float>::infinity();
+
+        std::atomic<float> mixMomentary { noValue };
+        std::atomic<float> mixShortTerm { noValue };
+        std::atomic<float> mixIntegrated { noValue };
+        std::atomic<float> referenceShortTerm { noValue };
+        std::atomic<float> referenceIntegrated { noValue }; // of the active reference, as played
+        std::atomic<float> mixGainDb { 0.0f };              // loudness-match offsets being applied
+        std::atomic<float> referenceGainDb { 0.0f };
+        std::atomic<bool> referenceAvailable { false };
+        std::atomic<float> crossfadePosition { 0.0f };      // 0 = Mix, 1 = Reference
+    };
+
+    class BenchmarkProcessor final : public juce::AudioProcessor,
+                                     private juce::AsyncUpdater
     {
     public:
         BenchmarkProcessor();
-        ~BenchmarkProcessor() override = default;
+        ~BenchmarkProcessor() override;
 
         //==============================================================================
         void prepareToPlay (double sampleRate, int maximumExpectedSamplesPerBlock) override;
@@ -41,17 +64,50 @@ namespace benchmark
 
         //==============================================================================
         juce::AudioProcessorValueTreeState& getValueTreeState() noexcept { return parameters; }
+        ReferenceLibrary& getReferenceLibrary() noexcept { return library; }
+        const LiveReadings& getReadings() const noexcept { return readings; }
+
+        /** Restarts the mix's integrated loudness measurement (thread-safe). */
+        void resetMixLoudness() noexcept { resetMixRequested.store (true); }
 
         // Editor size is remembered with the session.
         juce::Point<int> getSavedEditorSize() const;
         void setSavedEditorSize (juce::Point<int> size);
 
         static constexpr int stateVersion = 1;
+        static constexpr double gainSmoothingSeconds = 0.25;
 
     private:
+        void handleAsyncUpdate() override;
+        void restoreState (const juce::ValueTree& state);
+        void processChunk (float* const* channels, int numChannels, int numSamples, const ReferenceAudio* reference) noexcept;
+
         juce::AudioProcessorValueTreeState parameters;
         std::atomic<float>* bypassValue = nullptr;
+        std::atomic<float>* listenReferenceValue = nullptr;
+        std::atomic<float>* loudnessMatchValue = nullptr;
 
+        // Declared before the library, which publishes into it.
+        RealtimeHandoff<ReferenceAudio> referenceHandoff;
+        ReferenceLibrary library;
+
+        std::atomic<double> hostSampleRate { 0.0 };
+
+        // Audio-thread state.
+        double currentSampleRate = 48000.0;
+        int scratchCapacity = 0;
+        juce::AudioBuffer<float> referenceScratch;
+        dsp::LoudnessMeter mixMeter, referenceMeter;
+        dsp::Crossfader crossfader;
+        dsp::ReferencePlayer player;
+        juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> mixGain, referenceGain;
+        const ReferenceAudio* lastReference = nullptr;
+        uint32_t lastMeterUpdate = 0;
+
+        std::atomic<bool> resetMixRequested { false };
+        LiveReadings readings;
+
+        JUCE_DECLARE_WEAK_REFERENCEABLE (BenchmarkProcessor)
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BenchmarkProcessor)
     };
 }
