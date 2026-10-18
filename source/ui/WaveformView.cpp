@@ -195,6 +195,14 @@ namespace benchmark::ui
         };
         addAndMakeVisible (loopToggle);
 
+        alignButton.setWantsKeyboardFocus (false);
+        alignButton.setTooltip ("Line this reference up with the same song in your session: play the session in Sync mode "
+                                "and Benchmark listens for 15 s, then finds where it sits in the reference.\n"
+                                "Right-click to clear the alignment.");
+        alignButton.onClick = [this] { alignClicked(); };
+        alignButton.addMouseListener (this, false);
+        addChildComponent (alignButton);
+
         for (int i = 0; i < ReferenceLibrary::numMarkers; ++i)
         {
             markerButtons[(size_t) i] = std::make_unique<MarkerButton> (i);
@@ -265,6 +273,7 @@ namespace benchmark::ui
         footer.removeFromLeft (px (8.0f));
         modeSwitch->setBounds (footer.removeFromLeft (px (96.0f)));
         footer.removeFromLeft (px (12.0f));
+        alignButton.setBounds (footer.withWidth (px (118.0f)));
         loopToggle.setBounds (footer.removeFromLeft (px (64.0f)));
 
         for (int i = ReferenceLibrary::numMarkers - 1; i >= 0; --i)
@@ -425,7 +434,7 @@ namespace benchmark::ui
             if (sync && ! dragRegion.has_value())
             {
                 g.setFont (theme.font (10.0f));
-                g.drawText ("loop inactive in Sync", loopRect.reduced (theme.px (4.0f)), juce::Justification::topLeft, true);
+                g.drawText ("loop inactive in Sync", loopRect.reduced (theme.px (6.0f)).withTrimmedTop (theme.px (12.0f)), juce::Justification::topLeft, true);
             }
         }
 
@@ -442,13 +451,13 @@ namespace benchmark::ui
 
         if (sync)
         {
-            g.setColour (Colours::textMuted);
-            g.setFont (theme.font (10.0f));
-            const auto status = ! transport.hostPositionAvailable.load() ? juce::String ("host gives no position: playing freely")
-                                                                          : (transport.hostPlaying.load() ? juce::String ("following host")
-                                                                                                          : juce::String ("waiting for host to play"));
-            g.drawText (status, footerArea.toFloat().withTrimmedLeft ((float) (loopToggle.getRight() - footerArea.getX()) + theme.px (12.0f))
-                                    .withTrimmedRight ((float) (footerArea.getRight() - markerButtons[0]->getX()) + theme.px (8.0f)),
+            const auto& align = processor.getAlignmentStatus();
+            const auto busy = align.state == AlignmentStatus::State::listening || align.state == AlignmentStatus::State::analysing;
+            g.setColour (busy ? Colours::reference : Colours::textMuted);
+            g.setFont (theme.font (10.5f, busy));
+            g.drawText (getSyncStatusText(),
+                        footerArea.toFloat().withTrimmedLeft ((float) (alignButton.getRight() - footerArea.getX()) + theme.px (10.0f))
+                            .withTrimmedRight ((float) (footerArea.getRight() - markerButtons[0]->getX()) + theme.px (8.0f)),
                         juce::Justification::centredLeft, true);
         }
     }
@@ -474,6 +483,9 @@ namespace benchmark::ui
 
     void WaveformView::mouseMove (const juce::MouseEvent& e)
     {
+        if (e.eventComponent != this)
+            return;
+
         const auto inWave = waveArea.expanded (0, 4).contains (e.getPosition()) && getLengthSeconds() > 0.0;
         hoverX = inWave ? e.position.x : -1.0f;
 
@@ -497,6 +509,22 @@ namespace benchmark::ui
 
     void WaveformView::mouseDown (const juce::MouseEvent& e)
     {
+        if (e.eventComponent == &alignButton)
+        {
+            if (e.mods.isPopupMenu())
+            {
+                juce::PopupMenu menu;
+                const auto* entry = getActiveEntry();
+                menu.addItem (1, "Clear alignment", entry != nullptr && entry->alignmentConfidence > 0.0f);
+                menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&alignButton), [this] (int result)
+                {
+                    if (result == 1 && library.getActiveIndex() >= 0)
+                        library.setSyncOffset (library.getActiveIndex(), 0.0, 0.0f);
+                });
+            }
+            return;
+        }
+
         dragMode = DragMode::none;
 
         if (! waveArea.expanded (0, 4).contains (e.getPosition()) || getLengthSeconds() <= 0.0)
@@ -517,6 +545,9 @@ namespace benchmark::ui
 
     void WaveformView::mouseDrag (const juce::MouseEvent& e)
     {
+        if (e.eventComponent != this)
+            return;
+
         if (dragMode == DragMode::none)
             return;
 
@@ -552,6 +583,9 @@ namespace benchmark::ui
 
     void WaveformView::mouseUp (const juce::MouseEvent& e)
     {
+        if (e.eventComponent != this)
+            return;
+
         const auto mode = std::exchange (dragMode, DragMode::none);
 
         if (mode == DragMode::pending)
@@ -644,6 +678,47 @@ namespace benchmark::ui
         }
     }
 
+    juce::String WaveformView::getSyncStatusText() const
+    {
+        const auto& align = processor.getAlignmentStatus();
+        auto& transport = processor.getTransport();
+
+        switch (align.state)
+        {
+            case AlignmentStatus::State::listening:
+                return "Listening " + juce::String (juce::roundToInt (align.progress * 100.0f)) + "%: play the song in your session";
+            case AlignmentStatus::State::analysing:
+                return "Finding the match...";
+            case AlignmentStatus::State::idle:
+            case AlignmentStatus::State::done:
+            case AlignmentStatus::State::failed:
+                break;
+        }
+
+        juce::String text = ! transport.hostPositionAvailable.load() ? juce::String ("Host gives no position: playing freely")
+                                                                     : (transport.hostPlaying.load() ? juce::String ("Following host")
+                                                                                                     : juce::String ("Waiting for host to play"));
+
+        if (const auto* entry = getActiveEntry(); entry != nullptr && entry->alignmentConfidence > 0.0f)
+            text << "  |  aligned " << (entry->syncOffsetSeconds >= 0.0 ? "+" : "") << juce::String (entry->syncOffsetSeconds, 3)
+                 << " s (" << juce::roundToInt (entry->alignmentConfidence * 100.0f) << "% match)";
+
+        return text;
+    }
+
+    void WaveformView::alignClicked()
+    {
+        const auto state = processor.getAlignmentStatus().state;
+
+        if (state == AlignmentStatus::State::listening || state == AlignmentStatus::State::analysing)
+            processor.cancelAlignment();
+        else if (! processor.startAlignment())
+            message (processor.getAlignmentStatus().message);
+
+        updateControls();
+        repaint();
+    }
+
     void WaveformView::showContextMenu()
     {
         const auto* entry = getActiveEntry();
@@ -699,6 +774,13 @@ namespace benchmark::ui
         playButton->repaint();
 
         loopToggle.setEnabled (entry != nullptr && entry->loop.has_value() && ! sync);
+        loopToggle.setVisible (! sync);
+        alignButton.setVisible (sync);
+        alignButton.setEnabled (entry != nullptr && entry->audio != nullptr);
+
+        const auto alignState = processor.getAlignmentStatus().state;
+        alignButton.setButtonText (alignState == AlignmentStatus::State::listening || alignState == AlignmentStatus::State::analysing
+                                       ? "Cancel" : "Align to session");
         loopToggle.setToggleState (entry != nullptr && entry->loopEnabled, juce::dontSendNotification);
 
         for (int i = 0; i < ReferenceLibrary::numMarkers; ++i)
@@ -736,6 +818,25 @@ namespace benchmark::ui
         if (playhead != lastPlayhead)
         {
             lastPlayhead = playhead;
+            repaint();
+        }
+
+        // Alignment progress and result.
+        const auto& align = processor.getAlignmentStatus();
+        const auto alignState = (int) align.state;
+        const auto alignProgress = juce::roundToInt (align.progress * 100.0f);
+
+        if (alignState != lastAlignState || alignProgress != lastAlignProgress)
+        {
+            const auto finished = alignState != lastAlignState
+                                  && (align.state == AlignmentStatus::State::done || align.state == AlignmentStatus::State::failed);
+            lastAlignState = alignState;
+            lastAlignProgress = alignProgress;
+
+            if (finished && lastControlState >= 0)
+                message (align.message);
+
+            updateControls();
             repaint();
         }
     }

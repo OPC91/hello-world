@@ -59,6 +59,9 @@ namespace benchmark
             std::optional<LoopRegion> loop;
             bool loopEnabled = false;
             std::array<std::optional<LoopRegion>, 3> markers;
+
+            double syncOffsetSeconds = 0.0;  // reference time minus session time, Sync mode
+            float alignmentConfidence = 0.0f; // 0 = not aligned
             std::shared_ptr<ReferenceLoader::Ticket> ticket;
             uint64_t lastUsed = 0;
 
@@ -103,6 +106,10 @@ namespace benchmark
         /** Makes a marker the active loop and seeks to its start (Free mode). */
         void recallMarker (int index, int slot);
 
+        /** Sync-mode offset found by alignment (or cleared with 0, 0). */
+        void setSyncOffset (int index, double offsetSeconds, float confidence);
+        int findIndex (const juce::Uuid& id) const noexcept;
+
         /** Host sample rate. Loading waits until this is known; changing it reloads audio. */
         void setTargetSampleRate (double newRate);
         double getTargetSampleRate() const noexcept { return targetSampleRate; }
@@ -133,6 +140,7 @@ namespace benchmark
         void loadFinished (const juce::Uuid& id, const std::shared_ptr<ReferenceLoader::Ticket>& ticket, ReferenceDecoder::Result result);
         void publishActive();
         void publishLoop();
+        void publishSyncOffset();
         void enforceMemoryBudget();
         void stateChanged();
         void notify (const juce::String& text);

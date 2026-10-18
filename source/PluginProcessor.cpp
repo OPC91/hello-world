@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 #include "Parameters.h"
 #include "dsp/GainMatcher.h"
+#include "reference/Aligner.h"
 
 namespace benchmark
 {
@@ -24,17 +25,23 @@ namespace benchmark
         listenReferenceValue = parameters.getRawParameterValue (ParamIDs::listenRef);
         loudnessMatchValue = parameters.getRawParameterValue (ParamIDs::loudnessMatch);
         syncModeValue = parameters.getRawParameterValue (ParamIDs::syncMode);
+        bandSoloValue = parameters.getRawParameterValue (ParamIDs::bandSolo);
+        crossoverModeValue = parameters.getRawParameterValue (ParamIDs::crossoverMode);
 
         // Create the weak-reference master now, on the constructing thread, so that
         // setStateInformation() can safely take weak references from any thread.
         [[maybe_unused]] const juce::WeakReference<BenchmarkProcessor> init (this);
 
         analysisEngine.startThread();
+        startTimerHz (20);
     }
 
     BenchmarkProcessor::~BenchmarkProcessor()
     {
+        stopTimer();
         cancelPendingUpdate();
+        cancelAlignment();
+        alignmentPool.removeAllJobs (true, 10000);
         analysisEngine.stopThread();
     }
 
@@ -58,6 +65,11 @@ namespace benchmark
             g->reset (sampleRate, gainSmoothingSeconds);
             g->setCurrentAndTargetValue (1.0f);
         }
+
+        bandSolo.setMode ((dsp::BandSolo::Mode) juce::roundToInt (crossoverModeValue->load()));
+        bandSolo.setBand (juce::roundToInt (bandSoloValue->load()) - 1);
+        bandSolo.prepare (sampleRate, scratchCapacity, numChannels);
+        setLatencySamples (bandSolo.getLatencyFor (bandSolo.getActiveMode()));
 
         lastReference = nullptr;
         lastMeterUpdate = 0;
@@ -96,8 +108,20 @@ namespace benchmark
     //==============================================================================
     void BenchmarkProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
     {
-        juce::ScopedNoDenormals noDenormals;
         midi.clear();
+        processInternal (buffer, false);
+    }
+
+    void BenchmarkProcessor::processBlockBypassed (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
+    {
+        // Host bypass: play the mix, but through the same path so any latency stays constant.
+        midi.clear();
+        processInternal (buffer, true);
+    }
+
+    void BenchmarkProcessor::processInternal (juce::AudioBuffer<float>& buffer, bool hostBypassed) noexcept
+    {
+        juce::ScopedNoDenormals noDenormals;
 
         const auto numSamples = buffer.getNumSamples();
         const auto numInputs = getTotalNumInputChannels();
@@ -131,8 +155,9 @@ namespace benchmark
             mixMeter.reset();
 
         updateTransport();
+        captureForAlignment (buffer, numChannels);
 
-        const auto bypassed = bypassValue->load (std::memory_order_relaxed) >= 0.5f;
+        const auto bypassed = hostBypassed || bypassValue->load (std::memory_order_relaxed) >= 0.5f;
         const auto listenToReference = listenReferenceValue->load (std::memory_order_relaxed) >= 0.5f;
         const auto matchLoudness = loudnessMatchValue->load (std::memory_order_relaxed) >= 0.5f;
 
@@ -145,6 +170,9 @@ namespace benchmark
         mixGain.setTargetValue (juce::Decibels::decibelsToGain (gains.mixDb));
         referenceGain.setTargetValue (juce::Decibels::decibelsToGain (gains.referenceDb));
         crossfader.setTarget (! bypassed && listenToReference && reference != nullptr);
+
+        bandSolo.setMode ((dsp::BandSolo::Mode) juce::roundToInt (crossoverModeValue->load (std::memory_order_relaxed)));
+        bandSolo.setBand (bypassed ? dsp::BandSolo::off : juce::roundToInt (bandSoloValue->load (std::memory_order_relaxed)) - 1);
 
         // Process in chunks no larger than the scratch buffer, so hosts that send
         // bigger blocks than announced never cause an allocation.
@@ -191,6 +219,10 @@ namespace benchmark
                     hostTime = (int64_t) std::llround (*seconds * currentSampleRate);
             }
         }
+
+        lastHostPlaying = hostPlaying;
+        lastHostTimeValid = hostTime.has_value();
+        lastHostTime = hostTime.value_or (0);
 
         transport.hostPlaying.store (hostPlaying, std::memory_order_relaxed);
         transport.hostPositionAvailable.store (hostTime.has_value(), std::memory_order_relaxed);
@@ -245,22 +277,187 @@ namespace benchmark
         if (crossfader.isFullyA() && ! mixGain.isSmoothing() && juce::exactlyEqual (mixGain.getCurrentValue(), 1.0f))
         {
             referenceGain.skip (numSamples);
+        }
+        else
+        {
+            for (int i = 0; i < numSamples; ++i)
+            {
+                float fadeMix, fadeRef;
+                crossfader.next (fadeMix, fadeRef);
+
+                const auto gMix = mixGain.getNextValue() * fadeMix;
+                const auto gRef = referenceGain.getNextValue() * fadeRef;
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                {
+                    const auto ref = reference != nullptr ? refChannels[ch][i] : 0.0f;
+                    channels[ch][i] = channels[ch][i] * gMix + ref * gRef;
+                }
+            }
+        }
+
+        // Band solo applies to whatever is audible, Mix or Reference alike.
+        if (! bandSolo.isTransparent())
+            bandSolo.process (channels, numChannels, numSamples);
+    }
+
+    //==============================================================================
+    void BenchmarkProcessor::captureForAlignment (const juce::AudioBuffer<float>& buffer, int numChannels) noexcept
+    {
+        const auto state = captureState.load (std::memory_order_acquire);
+
+        if (state != captureArmed && state != captureRunning)
+            return;
+
+        const auto sync = syncModeValue->load (std::memory_order_relaxed) >= 0.5f;
+        if (! sync || ! lastHostPlaying || ! lastHostTimeValid)
+            return; // waits until the session plays
+
+        const auto numSamples = buffer.getNumSamples();
+        auto written = captureWritten.load (std::memory_order_relaxed);
+
+        // (Re)start when arming, or when the host jumped: the capture must be continuous.
+        if (state == captureArmed || lastHostTime != captureExpectedTime)
+        {
+            captureStartTime = lastHostTime;
+            written = 0;
+            captureState.store (captureRunning, std::memory_order_release);
+        }
+
+        const auto capacity = (int) captureBuffer.size();
+        const auto count = juce::jmin (numSamples, capacity - written);
+        const auto* l = buffer.getReadPointer (0);
+        const auto* r = buffer.getReadPointer (numChannels > 1 ? 1 : 0);
+
+        for (int i = 0; i < count; ++i)
+            captureBuffer[(size_t) (written + i)] = 0.5f * (l[i] + r[i]);
+
+        written += count;
+        captureExpectedTime = lastHostTime + numSamples;
+        captureWritten.store (written, std::memory_order_relaxed);
+
+        if (written >= capacity)
+        {
+            captureStartPublished.store (captureStartTime, std::memory_order_relaxed);
+            captureState.store (captureComplete, std::memory_order_release);
+        }
+    }
+
+    bool BenchmarkProcessor::startAlignment()
+    {
+        cancelAlignment();
+
+        const auto* active = library.getActive();
+        const auto rate = hostSampleRate.load();
+
+        if (active == nullptr || active->audio == nullptr || rate <= 0.0)
+        {
+            alignmentStatus = { AlignmentStatus::State::failed, 0.0f, "Load a reference first" };
+            return false;
+        }
+
+        if (syncModeValue->load() < 0.5f)
+        {
+            alignmentStatus = { AlignmentStatus::State::failed, 0.0f, "Switch to Sync mode to align" };
+            return false;
+        }
+
+        // The audio thread doesn't touch the buffer while the capture is idle.
+        captureBuffer.assign ((size_t) (alignmentCaptureSeconds * rate), 0.0f);
+        captureWritten = 0;
+        alignmentReferenceId = active->id;
+        captureState.store (captureArmed, std::memory_order_release);
+
+        alignmentStatus = { AlignmentStatus::State::listening, 0.0f, "Play your session where the song is playing" };
+        return true;
+    }
+
+    void BenchmarkProcessor::cancelAlignment()
+    {
+        captureState.store (captureIdle, std::memory_order_release);
+
+        if (alignmentCancel != nullptr)
+            alignmentCancel->store (true);
+
+        alignmentCancel = nullptr;
+        alignmentStatus = {};
+    }
+
+    void BenchmarkProcessor::launchAlignmentAnalysis()
+    {
+        const auto index = library.findIndex (alignmentReferenceId);
+        const auto rate = hostSampleRate.load();
+
+        if (index < 0 || library[index].audio == nullptr)
+        {
+            captureState.store (captureIdle);
+            alignmentStatus = { AlignmentStatus::State::failed, 0.0f, "The reference changed while listening" };
             return;
         }
 
-        for (int i = 0; i < numSamples; ++i)
+        auto reference = library[index].audio;
+        auto excerpt = captureBuffer; // the job owns a copy
+        const auto startTime = captureStartPublished.load();
+        captureState.store (captureIdle, std::memory_order_release);
+
+        alignmentCancel = std::make_shared<std::atomic<bool>> (false);
+        alignmentStatus = { AlignmentStatus::State::analysing, 1.0f, "Finding the match..." };
+
+        alignmentPool.addJob ([reference, excerpt = std::move (excerpt), startTime, rate, cancel = alignmentCancel,
+                               id = alignmentReferenceId, safeThis = juce::WeakReference<BenchmarkProcessor> (this)]
         {
-            float fadeMix, fadeRef;
-            crossfader.next (fadeMix, fadeRef);
+            auto result = Aligner::findExcerpt (reference->samples, excerpt.data(), (int) excerpt.size(), rate, cancel.get());
 
-            const auto gMix = mixGain.getNextValue() * fadeMix;
-            const auto gRef = referenceGain.getNextValue() * fadeRef;
+            if (cancel->load())
+                return;
 
-            for (int ch = 0; ch < numChannels; ++ch)
+            juce::MessageManager::callAsync ([result, startTime, rate, cancel, id, safeThis]
             {
-                const auto ref = reference != nullptr ? refChannels[ch][i] : 0.0f;
-                channels[ch][i] = channels[ch][i] * gMix + ref * gRef;
-            }
+                auto* self = safeThis.get();
+                if (self == nullptr || cancel->load())
+                    return;
+
+                if (! result.found)
+                {
+                    self->alignmentStatus = { AlignmentStatus::State::failed, 0.0f, result.message };
+                    return;
+                }
+
+                const auto offsetSeconds = (double) (result.referencePosition - startTime) / rate;
+                self->library.setSyncOffset (self->library.findIndex (id), offsetSeconds, result.confidence);
+
+                self->alignmentStatus = { AlignmentStatus::State::done, 1.0f,
+                                          "Aligned: offset " + juce::String (offsetSeconds >= 0.0 ? "+" : "") + juce::String (offsetSeconds, 3)
+                                              + " s (match " + juce::String (juce::roundToInt (result.confidence * 100.0f)) + "%)" };
+            });
+        });
+    }
+
+    //==============================================================================
+    void BenchmarkProcessor::updateLatency()
+    {
+        const auto mode = (dsp::BandSolo::Mode) juce::roundToInt (crossoverModeValue->load());
+        const auto latency = bandSolo.getLatencyFor (mode);
+
+        if (latency != getLatencySamples())
+            setLatencySamples (latency);
+    }
+
+    void BenchmarkProcessor::timerCallback()
+    {
+        updateLatency();
+
+        // Keep the linear-phase filter matching the selected band (loaded off the audio thread).
+        const auto bypassed = bypassValue->load() >= 0.5f;
+        bandSolo.updateLinearPhaseBand (bypassed ? dsp::BandSolo::off : juce::roundToInt (bandSoloValue->load()) - 1);
+
+        // Alignment progress.
+        if (alignmentStatus.state == AlignmentStatus::State::listening)
+        {
+            if (captureState.load() == captureComplete)
+                launchAlignmentAnalysis();
+            else if (! captureBuffer.empty())
+                alignmentStatus.progress = (float) captureWritten.load() / (float) captureBuffer.size();
         }
     }
 

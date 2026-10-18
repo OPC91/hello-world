@@ -15,6 +15,8 @@ namespace benchmark
         static const juce::Identifier end { "end" };
         static const juce::Identifier enabled { "enabled" };
         static const juce::Identifier slot { "slot" };
+        static const juce::Identifier syncOffset { "syncOffset" };
+        static const juce::Identifier alignConfidence { "alignConfidence" };
 
         juce::ValueTree regionToTree (const juce::Identifier& type, const LoopRegion& r)
         {
@@ -272,6 +274,39 @@ namespace benchmark
         const auto* active = getActive();
         handoff.publish (active != nullptr ? active->audio : nullptr);
         publishLoop();
+        publishSyncOffset();
+    }
+
+    void ReferenceLibrary::publishSyncOffset()
+    {
+        if (transport == nullptr)
+            return;
+
+        const auto* active = getActive();
+        const auto seconds = active != nullptr ? active->syncOffsetSeconds : 0.0;
+        transport->syncOffset.store (targetSampleRate > 0.0 ? (int64_t) std::llround (seconds * targetSampleRate) : 0);
+    }
+
+    void ReferenceLibrary::setSyncOffset (int index, double offsetSeconds, float confidence)
+    {
+        if (! juce::isPositiveAndBelow (index, size()))
+            return;
+
+        entries[(size_t) index].syncOffsetSeconds = offsetSeconds;
+        entries[(size_t) index].alignmentConfidence = confidence;
+
+        if (index == activeIndex)
+            publishSyncOffset();
+
+        stateChanged();
+    }
+
+    int ReferenceLibrary::findIndex (const juce::Uuid& id) const noexcept
+    {
+        for (int i = 0; i < size(); ++i)
+            if (entries[(size_t) i].id == id)
+                return i;
+        return -1;
     }
 
     void ReferenceLibrary::publishLoop()
@@ -437,6 +472,12 @@ namespace benchmark
             child.setProperty (IDs::path, e.file.getFullPathName(), nullptr);
             child.setProperty (IDs::name, e.name, nullptr);
 
+            if (e.alignmentConfidence > 0.0f || std::abs (e.syncOffsetSeconds) > 0.0)
+            {
+                child.setProperty (IDs::syncOffset, e.syncOffsetSeconds, nullptr);
+                child.setProperty (IDs::alignConfidence, e.alignmentConfidence, nullptr);
+            }
+
             if (e.loop.has_value())
             {
                 auto loopTree = IDs::regionToTree (IDs::loop, *e.loop);
@@ -489,6 +530,9 @@ namespace benchmark
                 entry.name = child[IDs::name].toString();
                 if (entry.name.isEmpty())
                     entry.name = entry.file.getFileNameWithoutExtension();
+
+                entry.syncOffsetSeconds = (double) child.getProperty (IDs::syncOffset, 0.0);
+                entry.alignmentConfidence = (float) child.getProperty (IDs::alignConfidence, 0.0f);
 
                 if (const auto loopTree = child.getChildWithName (IDs::loop); loopTree.isValid())
                 {

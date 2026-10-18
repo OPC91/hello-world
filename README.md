@@ -1,33 +1,52 @@
 # Benchmark
 
-Benchmark (working name) is a mix-referencing plugin. Put it on your master bus, load commercial reference tracks, and switch between your mix and a reference with one click or the space bar. The levels are loudness-matched so the comparison is fair.
+Benchmark (working name) is a mix-referencing plugin. Put it on your master bus, load commercial reference tracks, and compare your mix against them inside your DAW:
+
+- switch instantly between your mix and a loudness-matched reference;
+- loop and mark the sections you want to compare;
+- see where your mix differs in tonal balance, stereo width and dynamics, in plain language;
+- solo a frequency band on both, to compare bass with bass and so on.
 
 Formats: **VST3**, **AU** (macOS) and **Standalone**, built with C++20, JUCE 8 and CMake.
 
-> **Status:** Phase 4 of 5. Reference loading, A/B switching, loudness matching, the reference transport (waveform, seeking, loops, markers, Free/Sync) and the comparison analysis work. Band solo and alignment come in Phase 5.
-
 ## Using it
 
-1. Put Benchmark on your **master bus**, as the last plugin.
-2. Drag up to 12 reference tracks (WAV, AIFF, FLAC or MP3) onto the window, or click **Add references**. They decode and convert to your session's sample rate in the background. Click one to make it active.
-3. Click **MIX / REFERENCE** or press the **space bar** to switch. The switch uses a 15 ms equal-power crossfade, so there are no clicks. The switch is also a host parameter ("Mix / Reference"), so you can automate it or map it to a controller.
-4. With **Match** on, whichever source is louder is turned down so both play at the same integrated loudness (ITU-R BS.1770-4). Nothing is ever turned up. The panel shows what is being turned down and by how much.
-   - Your mix is measured continuously, whichever source you are listening to. Silence is ignored. Click **Reset** to restart the measurement after you change the mix or move to a different section.
-   - When the mix is the louder source, Benchmark turns your mix down. **Bypass or remove Benchmark before you bounce or export.**
-5. The **Reference Transport** panel shows the active reference's waveform and playhead.
-   - **Click** to jump. **Drag** to make a loop region, then drag its edges to resize it or its middle to move it. Turn looping on and off with **Loop**. Right-click for *Clear loop*, *Loop whole track* and saving to markers.
-   - **Markers 1–3** store up to three loops per reference. Click an empty marker to save the current loop, and click a filled one to jump back to it. Right-click a marker to overwrite or clear it. Loops and markers are saved with the session.
-   - **Free**: the reference plays on its own. Use the play/pause button, seeking and loops.
-   - **Sync**: the reference follows your DAW's transport (play/stop, position and cycle jumps). It is silent outside the file and doesn't loop. If the host gives no position, Benchmark plays freely instead.
-   - Jumps, loop wraps and pause/resume use 5 ms crossfades, so they don't click.
-6. The **Comparison** panel analyses your mix and the playing reference side by side, always before any loudness-match gain. Each tab has plain-language notes on the right.
-   - **Tonal balance**: 1/3-octave smoothed spectra of both, each normalised to its own loudness, so you compare tone rather than level. Below them is the difference: above the line, the mix has more in that range; below it, less. Hover to read exact values at any frequency.
-   - **Stereo width**: for four bands (Low below 150 Hz, Low-mid up to 1 kHz, High-mid up to 5 kHz, High above that), the share of side energy and the L/R correlation for each source.
-   - **Dynamics**: PLR (sample peak minus integrated loudness), crest factor, loudness range (LRA), and 60 s of short-term loudness history.
-   - **Average** builds up from the last **Reset**, and silence is ignored, so a paused transport doesn't skew it. **Live** follows roughly the last 1.5 s. Loop a section of the reference and play the matching section of your mix for a like-for-like comparison. The reference side resets when you choose a different reference.
-7. Missing reference files stay in the list in red. Click one to find the file again. Right-click a reference for more options.
+1. **Setup.** Put Benchmark on your **master bus** as the last plugin. Bypass or remove it before you bounce or export (see *Loudness matching*).
+2. **References.** Drag up to 12 tracks (WAV, AIFF, FLAC or MP3) onto the window, or click **Add references**.
+   - They decode and convert to the session's sample rate in the background, with progress shown in the list. They are converted again if the session rate changes.
+   - Click a reference to make it active. Right-click for *Locate file*, *Show in file browser* and *Remove*.
+   - Missing files stay in the list in red with their path kept. Click one to find it again.
+3. **Mix / Reference.** Click the big switch, press the **space bar**, or automate the *Mix / Reference* parameter. The switch is a 15 ms equal-power crossfade, so it doesn't click.
+4. **Loudness matching** (the **Match** switch). Whichever source is louder is turned down so both play at the same integrated loudness (ITU-R BS.1770-4). Nothing is ever turned up.
+   - Your mix is measured all the time, whichever source you are listening to. Silence is ignored. Click **Reset** to measure again after you change your mix or move to another section.
+   - References are measured once when they load.
+5. **Reference Transport.** Shows the waveform of the active reference with a playhead.
+   - **Click** to jump. **Drag** to make a loop region, then drag its edges to resize it or its middle to move it. **Loop** turns looping on and off.
+   - **Markers 1–3** store up to three loops per reference. Click an empty marker to save the current loop, and click a filled one to jump back to it. Right-click to overwrite or clear.
+   - **Free**: the reference plays on its own, with play/pause, seeking and loops.
+   - **Sync**: the reference follows your DAW's play/stop, position and cycle jumps. If the host gives no position, it plays freely instead.
+   - Jumps, loop points and pause/resume use 5 ms crossfades.
+6. **Align to session** (Sync mode). Use this when a reference is a version of a song that is also in your session.
+   - Click **Align to session**, then play the session where that song plays. Benchmark listens for 15 s and finds where the excerpt sits in the reference to the exact sample, so the two then play in step.
+   - The result shows a match percentage. If no confident match is found, it says so.
+   - Right-click the button to clear the alignment. The alignment is saved per reference.
+7. **Comparison.** Analyses your mix and the playing reference side by side, always before any matching gain. Each tab has notes on the right, for example *"Mix has +2.5 dB more 200-500 Hz (low-mids) than the reference"*.
+   - **Tonal balance**: 1/3-octave smoothed spectra, each normalised to its own loudness, so you compare tone rather than level. The difference plot below shows where the mix has more or less. Hover for exact values.
+   - **Stereo width**: the side-energy share and L/R correlation of each source, in four bands.
+   - **Dynamics**: PLR (sample peak minus integrated loudness), crest factor, loudness range (LRA), and 60 s of short-term loudness.
+   - **Average** builds up from **Reset** and ignores silence. **Live** follows roughly the last 1.5 s. Loop a reference section and play the matching part of your mix for a like-for-like comparison.
+8. **Band solo** (header bar, or keys **1–4**, with **0** for off). Solos Low (< 150 Hz), Low-mid (150 Hz–1 kHz), High-mid (1–5 kHz) or High (> 5 kHz) on whatever is playing, Mix or Reference.
+   - **Zero latency** (default): Linkwitz-Riley 24 dB/oct crossovers. They add no latency, but bands overlap around the crossover frequencies and the phase shifts near them.
+   - **Linear phase**: steep, phase-accurate FIR bands that sum back exactly. They add about **43 ms of latency**, which is reported to your DAW for delay compensation. In this mode the latency stays constant whether a band is soloed or not, so playback never jumps in time. Switching modes fades the output briefly, and some DAWs only apply the new latency after you stop the transport.
 
-Memory: references are stored decoded in memory, at about 11.5 MB per stereo minute at 48 kHz. Above 1.5 GB in total, the least recently used references are unloaded and reload when you select them.
+### Current behaviour worth knowing
+
+- **Loudness matching can turn your mix down.** When your mix is louder than the reference, Benchmark lowers your mix rather than raising the reference, so it never boosts. Leave it active while you export and the export will be quieter. Bypass or remove it first.
+- **References keep playing while you listen to your mix** in Free mode, unless you pause them, so switching lands mid-song. In Sync mode they follow the host.
+- **Matching uses each reference's whole-track loudness**, not the loop region.
+- **The analysis only covers audio that has played.** The reference side resets when you pick a different reference.
+- **The AU is built and validated in CI** (`auval` and pluginval). The project was developed on Linux, so the macOS and Windows builds have only been checked by CI, not in a DAW.
+- **Memory:** references are held decoded in memory, at about 11.5 MB per stereo minute at 48 kHz. Above 1.5 GB in total, the least recently used references are unloaded and reload when selected.
 
 ## Requirements
 
@@ -119,18 +138,35 @@ CI (`.github/workflows/ci.yml`) builds on Linux, macOS and Windows. It runs the 
 | `BENCHMARK_JUCE_TAG` | `8.0.15` | JUCE version to fetch |
 | `FETCHCONTENT_SOURCE_DIR_JUCE` | — | Path to a local JUCE checkout, so it isn't downloaded |
 
-## Project layout
+## Architecture
 
 ```
 source/
-  PluginProcessor, PluginEditor, Parameters   # plugin wiring only
-  dsp/        real-time-safe audio code (crossfade, loudness, playback, crossovers)
-  reference/  file loading, decoding, resampling, alignment (background threads)
-  analysis/   spectrum / stereo / dynamics analysis (background thread)
-  ui/         theme and components (original dark design, scales with the window)
-  util/       lock-free FIFOs and cross-thread helpers
-tests/        Catch2 unit tests
+  PluginProcessor, PluginEditor, Parameters   plugin wiring, parameters (APVTS), state
+  dsp/        real-time code: LoudnessMeter (BS.1770-4), KWeighting, GainMatcher, Crossfader,
+              ReferencePlayer (seek/loop/sync with de-clicking), BandSolo (LR4 + linear-phase FIR)
+  reference/  ReferenceLibrary (list, loops, markers, alignment, state), ReferenceLoader (thread pool),
+              ReferenceDecoder, Resampler (polyphase windowed sinc), Aligner (GCC-PHAT + refinement),
+              WaveformOverview
+  analysis/   AnalysisEngine (thread + FIFOs), SpectralAnalyser (tonal + stereo), DynamicsAnalyser,
+              HintGenerator (plain-language notes)
+  ui/         Theme, ABToggle, ReferenceListPanel, WaveformView, LoudnessPanel, AnalysisPanel, BandSoloBar
+  util/       RealtimeHandoff (hazard-pointer object handoff), TransportState (atomics), StereoFifo (SPSC)
+tests/        Catch2 tests, plus an offscreen UI snapshot test ("[.snapshot]")
 ```
+
+**Threads.** The audio thread never allocates, locks, logs or touches files.
+- **Decoding:** reference files decode and resample on a background thread pool, and each finished reference reaches the audio thread through a lock-free hazard-pointer handoff. Replaced references are freed later on the message thread.
+- **Commands:** transport commands (seek, loop, play) and the Sync offset are atomics.
+- **Analysis:** audio for analysis goes through wait-free FIFOs to a low-priority analysis thread, and the UI copies snapshots from it.
+- **Linear-phase filters:** these load on the message thread. JUCE's convolution crossfades to the new filter.
+- **Alignment capture:** filled by the audio thread into a buffer allocated beforehand, then analysed on its own thread.
+
+**Testing.** Run `ctest` (or `BenchmarkTests`). The tests cover:
+- the loudness meter, against EBU Tech 3341 cases 1–5 and 9 at 44.1, 48, 96 and 192 kHz, and Tech 3342 LRA cases 1–4;
+- loudness-matching gain maths, the crossfade, the resampler (passband accuracy, aliasing, odd sample rates) and the lock-free primitives (including multithreaded stress tests);
+- the decoder and library (missing files, memory budget, state), the transport (Free/Sync with a simulated host playhead), the analysers (pink and white noise, stereo cases, dynamics) and the hint wording;
+- band-solo filters (flat sum, band rejection, latency), alignment (sample-accurate, rejects non-matches, end to end), and processor state restored from a background thread.
 
 ## Identifiers
 

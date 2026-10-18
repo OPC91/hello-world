@@ -63,6 +63,8 @@ namespace benchmark::ui
         void showContextMenu();
         void updateControls();
         void message (const juce::String& text);
+        void alignClicked();
+        juce::String getSyncStatusText() const;
 
         BenchmarkProcessor& processor;
         ReferenceLibrary& library;
@@ -70,6 +72,9 @@ namespace benchmark::ui
         std::unique_ptr<IconButton> playButton;
         std::unique_ptr<Segmented> modeSwitch;
         juce::ToggleButton loopToggle { "Loop" };
+        juce::TextButton alignButton { "Align to session" };
+        int lastAlignState = -1;
+        int lastAlignProgress = -1;
         std::array<std::unique_ptr<MarkerButton>, ReferenceLibrary::numMarkers> markerButtons;
 
         juce::Rectangle<int> headerArea, waveArea, footerArea;

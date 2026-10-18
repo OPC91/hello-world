@@ -8,6 +8,7 @@ set(BENCHMARK_SOURCES
     ${BENCHMARK_SOURCE_DIR}/PluginEditor.cpp
 
     # Real-time DSP
+    ${BENCHMARK_SOURCE_DIR}/dsp/BandSolo.cpp
     ${BENCHMARK_SOURCE_DIR}/dsp/Crossfader.cpp
     ${BENCHMARK_SOURCE_DIR}/dsp/GainMatcher.cpp
     ${BENCHMARK_SOURCE_DIR}/dsp/KWeighting.cpp
@@ -21,6 +22,7 @@ set(BENCHMARK_SOURCES
     ${BENCHMARK_SOURCE_DIR}/analysis/SpectralAnalyser.cpp
 
     # Reference files (background threads)
+    ${BENCHMARK_SOURCE_DIR}/reference/Aligner.cpp
     ${BENCHMARK_SOURCE_DIR}/reference/ReferenceDecoder.cpp
     ${BENCHMARK_SOURCE_DIR}/reference/ReferenceLibrary.cpp
     ${BENCHMARK_SOURCE_DIR}/reference/ReferenceLoader.cpp
@@ -29,6 +31,7 @@ set(BENCHMARK_SOURCES
     # UI
     ${BENCHMARK_SOURCE_DIR}/ui/ABToggle.cpp
     ${BENCHMARK_SOURCE_DIR}/ui/AnalysisPanel.cpp
+    ${BENCHMARK_SOURCE_DIR}/ui/BandSoloBar.cpp
     ${BENCHMARK_SOURCE_DIR}/ui/LoudnessPanel.cpp
     ${BENCHMARK_SOURCE_DIR}/ui/ReferenceListPanel.cpp
     ${BENCHMARK_SOURCE_DIR}/ui/Theme.cpp

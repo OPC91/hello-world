@@ -10,11 +10,12 @@ namespace benchmark
           referenceList (p.getReferenceLibrary()),
           loudness (p),
           waveform (p),
-          analysis (p)
+          analysis (p),
+          bandSolo (p)
     {
         setLookAndFeel (&theme);
 
-        for (auto* c : std::initializer_list<juce::Component*> { &abToggle, &referenceList, &waveform, &loudness, &analysis })
+        for (auto* c : std::initializer_list<juce::Component*> { &abToggle, &referenceList, &waveform, &loudness, &analysis, &bandSolo })
             addAndMakeVisible (c);
 
         setWantsKeyboardFocus (true);
@@ -73,18 +74,32 @@ namespace benchmark
         g.setFont (theme.font (16.0f, true).withExtraKerningFactor (0.25f));
         g.drawText ("BENCHMARK", header, juce::Justification::centredLeft);
 
-        if (message.isNotEmpty())
-        {
-            g.setColour (ui::Colours::reference);
-            g.setFont (theme.font (12.0f, true));
-            g.drawText (message, header.withTrimmedLeft (theme.px (150.0f)), juce::Justification::centredRight, true);
-        }
-        else
-        {
-            g.setColour (ui::Colours::textMuted);
-            g.setFont (theme.font (11.0f));
-            g.drawText ("v" BENCHMARK_VERSION_STRING "  |  space: Mix / Reference", header, juce::Justification::centredRight);
-        }
+        g.setColour (ui::Colours::textMuted);
+        g.setFont (theme.font (11.0f));
+        g.drawText ("v" BENCHMARK_VERSION_STRING, header, juce::Justification::centredRight);
+    }
+
+    void BenchmarkEditor::paintOverChildren (juce::Graphics& g)
+    {
+        if (message.isEmpty())
+            return;
+
+        // Toast at the bottom centre.
+        const auto font = theme.font (12.5f, true);
+        const auto width = juce::jmin ((float) getWidth() - theme.px (40.0f),
+                                       juce::GlyphArrangement::getStringWidth (font, message) + theme.px (32.0f));
+        const auto box = juce::Rectangle<float> (width, theme.px (34.0f))
+                             .withCentre ({ (float) getWidth() * 0.5f, (float) getHeight() - theme.px (40.0f) });
+
+        g.setColour (juce::Colours::black.withAlpha (0.35f));
+        g.fillRoundedRectangle (box.translated (0.0f, theme.px (2.0f)), theme.px (8.0f));
+        g.setColour (ui::Colours::panelRaised);
+        g.fillRoundedRectangle (box, theme.px (8.0f));
+        g.setColour (ui::Colours::reference.withAlpha (0.7f));
+        g.drawRoundedRectangle (box.reduced (0.5f), theme.px (8.0f), 1.0f);
+        g.setColour (ui::Colours::textPrimary);
+        g.setFont (font);
+        g.drawText (message, box.reduced (theme.px (12.0f), 0.0f), juce::Justification::centred, true);
     }
 
     void BenchmarkEditor::resized()
@@ -96,6 +111,8 @@ namespace benchmark
         auto area = getLocalBounds();
 
         headerArea = area.removeFromTop (juce::roundToInt (theme.px (48.0f)));
+        bandSolo.setBounds (headerArea.withSizeKeepingCentre (juce::roundToInt (theme.px (520.0f)), juce::roundToInt (theme.px (28.0f)))
+                                .translated (juce::roundToInt (theme.px (10.0f)), 0));
         area.reduce (gap, 0);
         area.removeFromBottom (gap);
 
@@ -123,6 +140,13 @@ namespace benchmark
         if (key == juce::KeyPress::spaceKey)
         {
             abToggle.toggle();
+            return true;
+        }
+
+        // 1-4 solo a band (again to turn it off), 0 turns band solo off.
+        if (const auto c = key.getTextCharacter(); c >= '0' && c <= '4' && ! key.getModifiers().isAnyModifierKeyDown())
+        {
+            bandSolo.toggleBand (c - '0');
             return true;
         }
 
@@ -190,7 +214,7 @@ namespace benchmark
         message = text;
         messageExpiry = juce::Time::getMillisecondCounter() + 6000;
         startTimerHz (2);
-        repaint (headerArea);
+        repaint();
     }
 
     void BenchmarkEditor::timerCallback()
@@ -199,7 +223,7 @@ namespace benchmark
         {
             message.clear();
             stopTimer();
-            repaint (headerArea);
+            repaint();
         }
     }
 }

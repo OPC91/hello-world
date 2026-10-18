@@ -26,6 +26,15 @@ namespace benchmark
             juce::StringArray { "Free", "Sync" }, 0,
             juce::AudioParameterChoiceAttributes().withAutomatable (false)));
 
+        layout.add (std::make_unique<juce::AudioParameterChoice> (
+            ParameterID { ParamIDs::bandSolo, parameterVersion }, "Band Solo",
+            juce::StringArray { "Off", "Low", "Low-mid", "High-mid", "High" }, 0));
+
+        layout.add (std::make_unique<juce::AudioParameterChoice> (
+            ParameterID { ParamIDs::crossoverMode, parameterVersion }, "Band Solo Filters",
+            juce::StringArray { "Zero latency", "Linear phase" }, 0,
+            juce::AudioParameterChoiceAttributes().withAutomatable (false)));
+
         return layout;
     }
 }

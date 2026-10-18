@@ -127,6 +127,15 @@ TEST_CASE ("Editor snapshots", "[.snapshot]")
         }
     }
 
+    // Band solo active, and Sync mode with an alignment.
+    auto& params = processor.getValueTreeState();
+    params.getParameter (benchmark::ParamIDs::bandSolo)->setValueNotifyingHost (params.getParameter (benchmark::ParamIDs::bandSolo)->convertTo0to1 (2.0f));
+    params.getParameter (benchmark::ParamIDs::crossoverMode)->setValueNotifyingHost (1.0f);
+    params.getParameter (benchmark::ParamIDs::syncMode)->setValueNotifyingHost (1.0f);
+    library.setSyncOffset (1, 1.234, 0.87f);
+    juce::MessageManager::getInstance()->runDispatchLoopUntil (300);
+    saveSnapshot (*editor, "benchmark-solo-sync");
+
     editor->setSize (800, 512);
     juce::MessageManager::getInstance()->runDispatchLoopUntil (100);
     saveSnapshot (*editor, "benchmark-small");

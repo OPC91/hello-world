@@ -5,6 +5,7 @@
 #include "PluginProcessor.h"
 #include "ui/ABToggle.h"
 #include "ui/AnalysisPanel.h"
+#include "ui/BandSoloBar.h"
 #include "ui/LoudnessPanel.h"
 #include "ui/ReferenceListPanel.h"
 #include "ui/Theme.h"
@@ -22,6 +23,7 @@ namespace benchmark
         ~BenchmarkEditor() override;
 
         void paint (juce::Graphics&) override;
+        void paintOverChildren (juce::Graphics&) override;
         void resized() override;
         bool keyPressed (const juce::KeyPress&) override;
         void visibilityChanged() override;
@@ -47,6 +49,7 @@ namespace benchmark
         ui::LoudnessPanel loudness;
         ui::WaveformView waveform;
         ui::AnalysisPanel analysis;
+        ui::BandSoloBar bandSolo;
 
         juce::Rectangle<int> headerArea;
         juce::String message;
