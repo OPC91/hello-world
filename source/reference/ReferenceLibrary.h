@@ -3,6 +3,10 @@
 #include "ReferenceAudio.h"
 #include "ReferenceLoader.h"
 #include "util/RealtimeHandoff.h"
+#include "util/TransportState.h"
+
+#include <array>
+#include <optional>
 
 #include <juce_data_structures/juce_data_structures.h>
 #include <juce_events/juce_events.h>
@@ -16,6 +20,15 @@ namespace benchmark
         the active reference's audio reaches the audio thread via RealtimeHandoff.
         Keeps a thread-safe snapshot of its state for getStateInformation().
     */
+    /** A loop region in seconds (sample-rate independent, as saved in sessions). */
+    struct LoopRegion
+    {
+        double start = 0.0, end = 0.0;
+
+        double getLength() const noexcept { return end - start; }
+        bool operator== (const LoopRegion&) const = default;
+    };
+
     class ReferenceLibrary final : public juce::ChangeBroadcaster,
                                    private juce::Timer
     {
@@ -41,6 +54,11 @@ namespace benchmark
             bool hasInfo = false;
 
             std::shared_ptr<const ReferenceAudio> audio; // null while loading or when unloaded to save memory
+            std::shared_ptr<const WaveformOverview> overview; // kept when audio is unloaded
+
+            std::optional<LoopRegion> loop;
+            bool loopEnabled = false;
+            std::array<std::optional<LoopRegion>, 3> markers;
             std::shared_ptr<ReferenceLoader::Ticket> ticket;
             uint64_t lastUsed = 0;
 
@@ -53,9 +71,11 @@ namespace benchmark
         };
 
         static constexpr int maxReferences = 12;
+        static constexpr int numMarkers = 3;
+        static constexpr double minLoopSeconds = 0.05;
         static constexpr size_t defaultMemoryBudget = (size_t) 1536 * 1024 * 1024;
 
-        explicit ReferenceLibrary (RealtimeHandoff<ReferenceAudio>& audioHandoff);
+        explicit ReferenceLibrary (RealtimeHandoff<ReferenceAudio>& audioHandoff, TransportState* transport = nullptr);
         ~ReferenceLibrary() override;
 
         //==============================================================================
@@ -69,6 +89,19 @@ namespace benchmark
         int getActiveIndex() const noexcept { return activeIndex; }
         const Entry* getActive() const noexcept;
         bool isAnyLoading() const noexcept;
+
+        //==============================================================================
+        // Loops and markers (per reference, saved with the session)
+
+        /** Sets (and enables) or clears the loop. Too-short loops are rejected. */
+        void setLoop (int index, std::optional<LoopRegion> region);
+        void setLoopEnabled (int index, bool enabled);
+
+        /** Saves the current loop into a marker slot, or clears the slot. */
+        void setMarker (int index, int slot, std::optional<LoopRegion> region);
+
+        /** Makes a marker the active loop and seeks to its start (Free mode). */
+        void recallMarker (int index, int slot);
 
         /** Host sample rate. Loading waits until this is known; changing it reloads audio. */
         void setTargetSampleRate (double newRate);
@@ -99,11 +132,13 @@ namespace benchmark
         void startLoad (Entry& entry);
         void loadFinished (const juce::Uuid& id, const std::shared_ptr<ReferenceLoader::Ticket>& ticket, ReferenceDecoder::Result result);
         void publishActive();
+        void publishLoop();
         void enforceMemoryBudget();
         void stateChanged();
         void notify (const juce::String& text);
 
         RealtimeHandoff<ReferenceAudio>& handoff;
+        TransportState* transport = nullptr;
         ReferenceLoader loader;
 
         std::vector<Entry> entries;

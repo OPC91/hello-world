@@ -8,6 +8,7 @@
 #include "ui/PlaceholderPanel.h"
 #include "ui/ReferenceListPanel.h"
 #include "ui/Theme.h"
+#include "ui/WaveformView.h"
 
 namespace benchmark
 {
@@ -44,7 +45,7 @@ namespace benchmark
         ui::ABToggle abToggle;
         ui::ReferenceListPanel referenceList;
         ui::LoudnessPanel loudness;
-        ui::PlaceholderPanel waveform { "Reference Transport", "Waveform, playhead and loops (Phase 3)" };
+        ui::WaveformView waveform;
         ui::PlaceholderPanel analysis { "Comparison", "Tonal balance, stereo width and dynamics (Phase 4)" };
 
         juce::Rectangle<int> headerArea;

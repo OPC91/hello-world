@@ -7,6 +7,7 @@
 #include "dsp/ReferencePlayer.h"
 #include "reference/ReferenceLibrary.h"
 #include "util/RealtimeHandoff.h"
+#include "util/TransportState.h"
 
 namespace benchmark
 {
@@ -65,6 +66,8 @@ namespace benchmark
         //==============================================================================
         juce::AudioProcessorValueTreeState& getValueTreeState() noexcept { return parameters; }
         ReferenceLibrary& getReferenceLibrary() noexcept { return library; }
+        TransportState& getTransport() noexcept { return transport; }
+        double getCurrentSampleRate() const noexcept { return hostSampleRate.load(); }
         const LiveReadings& getReadings() const noexcept { return readings; }
 
         /** Restarts the mix's integrated loudness measurement (thread-safe). */
@@ -81,14 +84,17 @@ namespace benchmark
         void handleAsyncUpdate() override;
         void restoreState (const juce::ValueTree& state);
         void processChunk (float* const* channels, int numChannels, int numSamples, const ReferenceAudio* reference) noexcept;
+        void updateTransport() noexcept;
 
         juce::AudioProcessorValueTreeState parameters;
         std::atomic<float>* bypassValue = nullptr;
         std::atomic<float>* listenReferenceValue = nullptr;
         std::atomic<float>* loudnessMatchValue = nullptr;
+        std::atomic<float>* syncModeValue = nullptr;
 
-        // Declared before the library, which publishes into it.
+        // Declared before the library, which publishes into them.
         RealtimeHandoff<ReferenceAudio> referenceHandoff;
+        TransportState transport;
         ReferenceLibrary library;
 
         std::atomic<double> hostSampleRate { 0.0 };

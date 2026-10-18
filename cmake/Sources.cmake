@@ -25,4 +25,5 @@ set(BENCHMARK_SOURCES
     ${BENCHMARK_SOURCE_DIR}/ui/LoudnessPanel.cpp
     ${BENCHMARK_SOURCE_DIR}/ui/PlaceholderPanel.cpp
     ${BENCHMARK_SOURCE_DIR}/ui/ReferenceListPanel.cpp
-    ${BENCHMARK_SOURCE_DIR}/ui/Theme.cpp)
+    ${BENCHMARK_SOURCE_DIR}/ui/Theme.cpp
+    ${BENCHMARK_SOURCE_DIR}/ui/WaveformView.cpp)

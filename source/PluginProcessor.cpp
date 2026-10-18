@@ -18,11 +18,12 @@ namespace benchmark
                               .withInput ("Input", juce::AudioChannelSet::stereo(), true)
                               .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
           parameters (*this, nullptr, StateIDs::root, createParameterLayout()),
-          library (referenceHandoff)
+          library (referenceHandoff, &transport)
     {
         bypassValue = parameters.getRawParameterValue (ParamIDs::bypass);
         listenReferenceValue = parameters.getRawParameterValue (ParamIDs::listenRef);
         loudnessMatchValue = parameters.getRawParameterValue (ParamIDs::loudnessMatch);
+        syncModeValue = parameters.getRawParameterValue (ParamIDs::syncMode);
 
         // Create the weak-reference master now, on the constructing thread, so that
         // setStateInformation() can safely take weak references from any thread.
@@ -47,7 +48,7 @@ namespace benchmark
         referenceMeter.prepare (sampleRate, numChannels);
         crossfader.setTarget (false);
         crossfader.prepare (sampleRate);
-        player.reset();
+        player.prepare (sampleRate);
 
         for (auto* g : { &mixGain, &referenceGain })
         {
@@ -118,8 +119,12 @@ namespace benchmark
             lastReference = reference;
         }
 
+        player.setReference (reference);
+
         if (resetMixRequested.exchange (false))
             mixMeter.reset();
+
+        updateTransport();
 
         const auto bypassed = bypassValue->load (std::memory_order_relaxed) >= 0.5f;
         const auto listenToReference = listenReferenceValue->load (std::memory_order_relaxed) >= 0.5f;
@@ -158,6 +163,61 @@ namespace benchmark
         readings.referenceGainDb.store (juce::Decibels::gainToDecibels (referenceGain.getCurrentValue()), std::memory_order_relaxed);
         readings.referenceAvailable.store (reference != nullptr, std::memory_order_relaxed);
         readings.crossfadePosition.store (crossfader.getPosition(), std::memory_order_relaxed);
+
+        transport.playhead.store (player.getPosition(), std::memory_order_relaxed);
+        transport.referencePlaying.store (reference != nullptr && player.isPlaying(), std::memory_order_relaxed);
+    }
+
+    void BenchmarkProcessor::updateTransport() noexcept
+    {
+        bool hostPlaying = false;
+        std::optional<int64_t> hostTime;
+
+        if (auto* hostPlayHead = getPlayHead())
+        {
+            if (const auto position = hostPlayHead->getPosition())
+            {
+                hostPlaying = position->getIsPlaying();
+
+                if (const auto samples = position->getTimeInSamples())
+                    hostTime = *samples;
+                else if (const auto seconds = position->getTimeInSeconds())
+                    hostTime = (int64_t) std::llround (*seconds * currentSampleRate);
+            }
+        }
+
+        transport.hostPlaying.store (hostPlaying, std::memory_order_relaxed);
+        transport.hostPositionAvailable.store (hostTime.has_value(), std::memory_order_relaxed);
+
+        const auto seekRequest = transport.seekRequest.exchange (TransportState::noSeek);
+        const auto sync = syncModeValue->load (std::memory_order_relaxed) >= 0.5f;
+
+        if (sync && hostTime.has_value())
+        {
+            // Follow the host: play/stop and position, no looping, silence outside the file.
+            player.setWrapAtEnd (false);
+            player.clearLoop();
+            player.setPlaying (hostPlaying);
+
+            if (hostPlaying)
+                player.seek (*hostTime + transport.syncOffset.load (std::memory_order_relaxed));
+        }
+        else
+        {
+            // Free: own play state, loop region and seeking. Also the fallback when
+            // the host provides no position.
+            player.setWrapAtEnd (true);
+
+            if (const auto loop = LoopPoints::unpack (transport.loop.load (std::memory_order_relaxed)); loop.isValid())
+                player.setLoop (loop.start, loop.end);
+            else
+                player.clearLoop();
+
+            player.setPlaying (transport.freePlaying.load (std::memory_order_relaxed));
+
+            if (seekRequest != TransportState::noSeek)
+                player.seek (seekRequest);
+        }
     }
 
     void BenchmarkProcessor::processChunk (float* const* channels, int numChannels, int numSamples, const ReferenceAudio* reference) noexcept
@@ -169,7 +229,7 @@ namespace benchmark
 
         if (reference != nullptr)
         {
-            player.render (*reference, refChannels, numChannels, numSamples);
+            player.render (refChannels, numChannels, numSamples);
             referenceMeter.process (refChannels, numChannels, numSamples);
         }
 

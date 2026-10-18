@@ -9,12 +9,39 @@ namespace benchmark
         static const juce::Identifier id { "id" };
         static const juce::Identifier path { "path" };
         static const juce::Identifier name { "name" };
+        static const juce::Identifier loop { "Loop" };
+        static const juce::Identifier marker { "Marker" };
+        static const juce::Identifier start { "start" };
+        static const juce::Identifier end { "end" };
+        static const juce::Identifier enabled { "enabled" };
+        static const juce::Identifier slot { "slot" };
+
+        juce::ValueTree regionToTree (const juce::Identifier& type, const LoopRegion& r)
+        {
+            juce::ValueTree t (type);
+            t.setProperty (start, r.start, nullptr);
+            t.setProperty (end, r.end, nullptr);
+            return t;
+        }
+
+        std::optional<LoopRegion> treeToRegion (const juce::ValueTree& t)
+        {
+            if (! t.isValid() || ! t.hasProperty (start) || ! t.hasProperty (end))
+                return std::nullopt;
+
+            LoopRegion r { (double) t[start], (double) t[end] };
+
+            if (! (r.start >= 0.0) || ! (r.getLength() >= ReferenceLibrary::minLoopSeconds))
+                return std::nullopt;
+
+            return r;
+        }
     }
 
     const juce::Identifier ReferenceLibrary::stateType { "References" };
 
-    ReferenceLibrary::ReferenceLibrary (RealtimeHandoff<ReferenceAudio>& audioHandoff)
-        : handoff (audioHandoff)
+    ReferenceLibrary::ReferenceLibrary (RealtimeHandoff<ReferenceAudio>& audioHandoff, TransportState* transportState)
+        : handoff (audioHandoff), transport (transportState)
     {
         snapshot = createState();
         startTimerHz (2);
@@ -113,6 +140,7 @@ namespace benchmark
         entry.file = newFile;
         entry.name = newFile.getFileNameWithoutExtension();
         entry.audio = nullptr;
+        entry.overview = nullptr;
         entry.hasInfo = false;
         startLoad (entry);
 
@@ -221,6 +249,7 @@ namespace benchmark
             entry->status = Status::ready;
             entry->info = result.audio->info;
             entry->hasInfo = true;
+            entry->overview = result.audio->overview;
             entry->audio = std::move (result.audio);
 
             if (entry == getActive())
@@ -242,6 +271,99 @@ namespace benchmark
     {
         const auto* active = getActive();
         handoff.publish (active != nullptr ? active->audio : nullptr);
+        publishLoop();
+    }
+
+    void ReferenceLibrary::publishLoop()
+    {
+        if (transport == nullptr)
+            return;
+
+        const auto* active = getActive();
+
+        if (active == nullptr || ! active->loop.has_value() || ! active->loopEnabled || targetSampleRate <= 0.0)
+        {
+            transport->clearLoop();
+            return;
+        }
+
+        transport->setLoop ({ (int64_t) std::llround (active->loop->start * targetSampleRate),
+                              (int64_t) std::llround (active->loop->end * targetSampleRate) });
+    }
+
+    //==============================================================================
+    void ReferenceLibrary::setLoop (int index, std::optional<LoopRegion> region)
+    {
+        if (! juce::isPositiveAndBelow (index, size()))
+            return;
+
+        auto& entry = entries[(size_t) index];
+
+        if (region.has_value())
+        {
+            if (region->end < region->start)
+                std::swap (region->start, region->end);
+
+            region->start = std::max (0.0, region->start);
+
+            if (region->getLength() < minLoopSeconds)
+                return;
+
+            entry.loop = region;
+            entry.loopEnabled = true;
+        }
+        else
+        {
+            entry.loop.reset();
+            entry.loopEnabled = false;
+        }
+
+        if (index == activeIndex)
+            publishLoop();
+
+        stateChanged();
+    }
+
+    void ReferenceLibrary::setLoopEnabled (int index, bool enabled)
+    {
+        if (! juce::isPositiveAndBelow (index, size()))
+            return;
+
+        auto& entry = entries[(size_t) index];
+        entry.loopEnabled = enabled && entry.loop.has_value();
+
+        if (index == activeIndex)
+            publishLoop();
+
+        stateChanged();
+    }
+
+    void ReferenceLibrary::setMarker (int index, int slot, std::optional<LoopRegion> region)
+    {
+        if (! juce::isPositiveAndBelow (index, size()) || ! juce::isPositiveAndBelow (slot, numMarkers))
+            return;
+
+        if (region.has_value() && region->getLength() < minLoopSeconds)
+            return;
+
+        entries[(size_t) index].markers[(size_t) slot] = region;
+        stateChanged();
+    }
+
+    void ReferenceLibrary::recallMarker (int index, int slot)
+    {
+        if (! juce::isPositiveAndBelow (index, size()) || ! juce::isPositiveAndBelow (slot, numMarkers))
+            return;
+
+        const auto marker = entries[(size_t) index].markers[(size_t) slot];
+
+        if (! marker.has_value())
+            return;
+
+        setLoop (index, marker);
+
+        if (index == activeIndex && transport != nullptr && targetSampleRate > 0.0)
+            transport->requestSeek ((int64_t) std::llround (marker->start * targetSampleRate));
     }
 
     void ReferenceLibrary::setMemoryBudget (size_t bytes)
@@ -314,6 +436,24 @@ namespace benchmark
             child.setProperty (IDs::id, e.id.toString(), nullptr);
             child.setProperty (IDs::path, e.file.getFullPathName(), nullptr);
             child.setProperty (IDs::name, e.name, nullptr);
+
+            if (e.loop.has_value())
+            {
+                auto loopTree = IDs::regionToTree (IDs::loop, *e.loop);
+                loopTree.setProperty (IDs::enabled, e.loopEnabled, nullptr);
+                child.appendChild (loopTree, nullptr);
+            }
+
+            for (int slot = 0; slot < numMarkers; ++slot)
+            {
+                if (const auto& m = e.markers[(size_t) slot]; m.has_value())
+                {
+                    auto markerTree = IDs::regionToTree (IDs::marker, *m);
+                    markerTree.setProperty (IDs::slot, slot, nullptr);
+                    child.appendChild (markerTree, nullptr);
+                }
+            }
+
             state.appendChild (child, nullptr);
         }
 
@@ -349,6 +489,20 @@ namespace benchmark
                 entry.name = child[IDs::name].toString();
                 if (entry.name.isEmpty())
                     entry.name = entry.file.getFileNameWithoutExtension();
+
+                if (const auto loopTree = child.getChildWithName (IDs::loop); loopTree.isValid())
+                {
+                    entry.loop = IDs::treeToRegion (loopTree);
+                    entry.loopEnabled = entry.loop.has_value() && (bool) loopTree.getProperty (IDs::enabled, true);
+                }
+
+                for (const auto& markerTree : child)
+                {
+                    const auto slot = (int) markerTree.getProperty (IDs::slot, -1);
+
+                    if (markerTree.hasType (IDs::marker) && juce::isPositiveAndBelow (slot, numMarkers))
+                        entry.markers[(size_t) slot] = IDs::treeToRegion (markerTree);
+                }
 
                 entries.push_back (std::move (entry));
                 startLoad (entries.back());

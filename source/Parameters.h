@@ -10,6 +10,7 @@ namespace benchmark
         inline constexpr auto bypass        = "bypass";
         inline constexpr auto listenRef     = "listenReference"; // false = Mix, true = Reference
         inline constexpr auto loudnessMatch = "loudnessMatch";
+        inline constexpr auto syncMode      = "syncMode";        // 0 = Free, 1 = Sync to host transport
     }
 
     // Bump only when a parameter's meaning changes (see juce::ParameterID).

@@ -166,6 +166,7 @@ namespace benchmark
         audio->info = analyse (audio->samples, targetSampleRate);
         audio->info.sourceSampleRate = reader->sampleRate;
         audio->info.sourceChannels = (int) reader->numChannels;
+        audio->overview = std::make_shared<WaveformOverview> (WaveformOverview::compute (audio->samples, targetSampleRate));
         setProgress (1.0f);
 
         result.audio = std::move (audio);

@@ -7,6 +7,7 @@ add_executable(BenchmarkTests
     ReferencePlayerTests.cpp
     ReferenceTests.cpp
     ResamplerTests.cpp
+    TransportTests.cpp
     UiSnapshot.cpp)
 
 target_link_libraries(BenchmarkTests

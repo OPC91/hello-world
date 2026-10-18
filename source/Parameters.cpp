@@ -21,6 +21,11 @@ namespace benchmark
         layout.add (std::make_unique<AudioParameterBool> (
             ParameterID { ParamIDs::loudnessMatch, parameterVersion }, "Loudness Match", true));
 
+        layout.add (std::make_unique<juce::AudioParameterChoice> (
+            ParameterID { ParamIDs::syncMode, parameterVersion }, "Reference Playback",
+            juce::StringArray { "Free", "Sync" }, 0,
+            juce::AudioParameterChoiceAttributes().withAutomatable (false)));
+
         return layout;
     }
 }

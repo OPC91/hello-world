@@ -1,6 +1,10 @@
 #pragma once
 
+#include "WaveformOverview.h"
+
 #include <juce_audio_basics/juce_audio_basics.h>
+
+#include <memory>
 
 namespace benchmark
 {
@@ -30,6 +34,7 @@ namespace benchmark
         juce::AudioBuffer<float> samples; // 1 or 2 channels at sampleRate
         double sampleRate = 0.0;
         ReferenceInfo info;
+        std::shared_ptr<const WaveformOverview> overview;
 
         size_t getMemoryBytes() const noexcept
         {

@@ -8,7 +8,8 @@ namespace benchmark
           processor (p),
           abToggle (*p.getValueTreeState().getParameter (ParamIDs::listenRef)),
           referenceList (p.getReferenceLibrary()),
-          loudness (p)
+          loudness (p),
+          waveform (p)
     {
         setLookAndFeel (&theme);
 
@@ -26,6 +27,8 @@ namespace benchmark
                 safeThis->showMessage (text);
         };
         updateReferenceName();
+
+        waveform.onMessage = [this] (const juce::String& text) { showMessage (text); };
 
         setResizable (true, true);
         if (auto* sizeLimits = getConstrainer())
@@ -98,7 +101,7 @@ namespace benchmark
         referenceList.setBounds (area.removeFromLeft (juce::roundToInt ((float) area.getWidth() * 0.26f)));
         area.removeFromLeft (gap);
 
-        waveform.setBounds (area.removeFromTop (juce::roundToInt ((float) area.getHeight() * 0.26f)));
+        waveform.setBounds (area.removeFromTop (juce::roundToInt ((float) area.getHeight() * 0.34f)));
         area.removeFromTop (gap);
 
         auto controls = area.removeFromTop (juce::roundToInt (theme.px (112.0f)));

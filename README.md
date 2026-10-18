@@ -4,7 +4,7 @@ Benchmark (working name) is a mix-referencing plugin. Put it on your master bus,
 
 Formats: **VST3**, **AU** (macOS) and **Standalone**, built with C++20, JUCE 8 and CMake.
 
-> **Status:** Phase 2 of 5. Reference loading, A/B switching and loudness matching work. The waveform/transport, analysis displays and band solo come in later phases.
+> **Status:** Phase 3 of 5. Reference loading, A/B switching, loudness matching and the reference transport (waveform, seeking, loops, markers, Free/Sync) work. The analysis displays and band solo come in later phases.
 
 ## Using it
 
@@ -14,7 +14,13 @@ Formats: **VST3**, **AU** (macOS) and **Standalone**, built with C++20, JUCE 8 a
 4. With **Match** on, whichever source is louder is turned down so both play at the same integrated loudness (ITU-R BS.1770-4). Nothing is ever turned up. The panel shows what is being turned down and by how much.
    - Your mix is measured continuously, whichever source you are listening to. Silence is ignored. Click **Reset** to restart the measurement after you change the mix or move to a different section.
    - When the mix is the louder source, Benchmark turns your mix down. **Bypass or remove Benchmark before you bounce or export.**
-5. Missing reference files stay in the list in red. Click one to find the file again. Right-click a reference for more options.
+5. The **Reference Transport** panel shows the active reference's waveform and playhead.
+   - **Click** to jump. **Drag** to make a loop region, then drag its edges to resize it or its middle to move it. Turn looping on and off with **Loop**. Right-click for *Clear loop*, *Loop whole track* and saving to markers.
+   - **Markers 1–3** store up to three loops per reference. Click an empty marker to save the current loop, and click a filled one to jump back to it. Right-click a marker to overwrite or clear it. Loops and markers are saved with the session.
+   - **Free**: the reference plays on its own. Use the play/pause button, seeking and loops.
+   - **Sync**: the reference follows your DAW's transport (play/stop, position and cycle jumps). It is silent outside the file and doesn't loop. If the host gives no position, Benchmark plays freely instead.
+   - Jumps, loop wraps and pause/resume use 5 ms crossfades, so they don't click.
+6. Missing reference files stay in the list in red. Click one to find the file again. Right-click a reference for more options.
 
 Memory: references are stored decoded in memory, at about 11.5 MB per stereo minute at 48 kHz. Above 1.5 GB in total, the least recently used references are unloaded and reload when you select them.
 

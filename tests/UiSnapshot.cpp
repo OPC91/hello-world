@@ -18,6 +18,29 @@ namespace
         return dir;
     }
 
+    /** Noise with a song-like loudness envelope, so waveforms look like music. */
+    juce::AudioBuffer<float> makeMusicLike (double sr, double seconds, double levelDb, int seed)
+    {
+        juce::Random rng (seed);
+        const auto n = (int) (sr * seconds);
+        juce::AudioBuffer<float> b (2, n);
+        const auto gain = (float) std::pow (10.0, levelDb / 20.0);
+        float lp = 0.0f;
+
+        for (int i = 0; i < n; ++i)
+        {
+            const auto t = i / sr;
+            const auto section = 0.55 + 0.45 * std::sin (t * 0.35 + seed);         // verses / choruses
+            const auto beat = 0.6 + 0.4 * std::pow (std::abs (std::sin (t * 3.9)), 6.0); // pulses
+            lp += 0.2f * ((rng.nextFloat() * 2.0f - 1.0f) - lp);
+            const auto v = gain * (float) (section * beat) * lp * 3.0f;
+            b.setSample (0, i, v);
+            b.setSample (1, i, v * 0.9f);
+        }
+
+        return b;
+    }
+
     void saveSnapshot (juce::Component& c, const juce::String& name)
     {
         const auto image = c.createComponentSnapshot (c.getLocalBounds(), true, 1.0f);
@@ -49,7 +72,7 @@ TEST_CASE ("Editor snapshots", "[.snapshot]")
                                        { "Acoustic Ballad", -14.0 }, { "Lo-fi Beat", -12.0 } })
     {
         const auto f = temp / (juce::String (name) + ".wav");
-        testing::writeWav (f, testing::makeSine (sr, 4.0, 220.0, level + 3.0), sr);
+        testing::writeWav (f, makeMusicLike (sr, 30.0, level + 6.0, files.size() + 1), sr);
         files.add (f);
     }
 
@@ -65,6 +88,12 @@ TEST_CASE ("Editor snapshots", "[.snapshot]")
     state.setProperty ("active", 1, nullptr);
     library.restoreState (state);
     REQUIRE (library.waitUntilLoaded (20000));
+
+    // A loop and two markers on the active reference.
+    library.setLoop (1, benchmark::LoopRegion { 8.0, 14.5 });
+    library.setMarker (1, 0, benchmark::LoopRegion { 8.0, 14.5 });
+    library.setMarker (1, 2, benchmark::LoopRegion { 20.0, 26.0 });
+    processor.getTransport().requestSeek ((int64_t) (10.2 * sr));
 
     // Feed some mix so the meters have values.
     processor.getValueTreeState().getParameter (benchmark::ParamIDs::listenRef)->setValueNotifyingHost (1.0f);
