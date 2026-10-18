@@ -1,4 +1,5 @@
 add_executable(BenchmarkTests
+    AnalysisTests.cpp
     CrossfaderTests.cpp
     GainMatchTests.cpp
     HandoffTests.cpp

@@ -4,8 +4,8 @@
 
 #include "PluginProcessor.h"
 #include "ui/ABToggle.h"
+#include "ui/AnalysisPanel.h"
 #include "ui/LoudnessPanel.h"
-#include "ui/PlaceholderPanel.h"
 #include "ui/ReferenceListPanel.h"
 #include "ui/Theme.h"
 #include "ui/WaveformView.h"
@@ -46,7 +46,7 @@ namespace benchmark
         ui::ReferenceListPanel referenceList;
         ui::LoudnessPanel loudness;
         ui::WaveformView waveform;
-        ui::PlaceholderPanel analysis { "Comparison", "Tonal balance, stereo width and dynamics (Phase 4)" };
+        ui::AnalysisPanel analysis;
 
         juce::Rectangle<int> headerArea;
         juce::String message;

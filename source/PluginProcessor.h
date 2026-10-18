@@ -2,6 +2,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include "analysis/AnalysisEngine.h"
 #include "dsp/Crossfader.h"
 #include "dsp/LoudnessMeter.h"
 #include "dsp/ReferencePlayer.h"
@@ -67,6 +68,7 @@ namespace benchmark
         juce::AudioProcessorValueTreeState& getValueTreeState() noexcept { return parameters; }
         ReferenceLibrary& getReferenceLibrary() noexcept { return library; }
         TransportState& getTransport() noexcept { return transport; }
+        analysis::AnalysisEngine& getAnalysis() noexcept { return analysisEngine; }
         double getCurrentSampleRate() const noexcept { return hostSampleRate.load(); }
         const LiveReadings& getReadings() const noexcept { return readings; }
 
@@ -108,6 +110,8 @@ namespace benchmark
         juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> mixGain, referenceGain;
         const ReferenceAudio* lastReference = nullptr;
         uint32_t lastMeterUpdate = 0;
+
+        analysis::AnalysisEngine analysisEngine;
 
         std::atomic<bool> resetMixRequested { false };
         LiveReadings readings;

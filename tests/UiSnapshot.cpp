@@ -19,23 +19,25 @@ namespace
     }
 
     /** Noise with a song-like loudness envelope, so waveforms look like music. */
-    juce::AudioBuffer<float> makeMusicLike (double sr, double seconds, double levelDb, int seed)
+    juce::AudioBuffer<float> makeMusicLike (double sr, double seconds, double levelDb, int seed,
+                                            float brightness = 0.2f, float width = 0.1f)
     {
         juce::Random rng (seed);
         const auto n = (int) (sr * seconds);
         juce::AudioBuffer<float> b (2, n);
         const auto gain = (float) std::pow (10.0, levelDb / 20.0);
-        float lp = 0.0f;
+        float lp = 0.0f, lpSide = 0.0f;
 
         for (int i = 0; i < n; ++i)
         {
             const auto t = i / sr;
             const auto section = 0.55 + 0.45 * std::sin (t * 0.35 + seed);         // verses / choruses
             const auto beat = 0.6 + 0.4 * std::pow (std::abs (std::sin (t * 3.9)), 6.0); // pulses
-            lp += 0.2f * ((rng.nextFloat() * 2.0f - 1.0f) - lp);
-            const auto v = gain * (float) (section * beat) * lp * 3.0f;
-            b.setSample (0, i, v);
-            b.setSample (1, i, v * 0.9f);
+            lp += brightness * ((rng.nextFloat() * 2.0f - 1.0f) - lp);
+            lpSide += brightness * ((rng.nextFloat() * 2.0f - 1.0f) - lpSide);
+            const auto env = gain * (float) (section * beat) * 3.0f;
+            b.setSample (0, i, env * (lp + width * lpSide));
+            b.setSample (1, i, env * (lp - width * lpSide));
         }
 
         return b;
@@ -72,7 +74,7 @@ TEST_CASE ("Editor snapshots", "[.snapshot]")
                                        { "Acoustic Ballad", -14.0 }, { "Lo-fi Beat", -12.0 } })
     {
         const auto f = temp / (juce::String (name) + ".wav");
-        testing::writeWav (f, makeMusicLike (sr, 30.0, level + 6.0, files.size() + 1), sr);
+        testing::writeWav (f, makeMusicLike (sr, 30.0, level + 6.0, files.size() + 1, 0.15f, 0.45f), sr);
         files.add (f);
     }
 
@@ -97,7 +99,7 @@ TEST_CASE ("Editor snapshots", "[.snapshot]")
 
     // Feed some mix so the meters have values.
     processor.getValueTreeState().getParameter (benchmark::ParamIDs::listenRef)->setValueNotifyingHost (1.0f);
-    auto mix = testing::makeSine (sr, 6.0, 330.0, -11.0);
+    auto mix = makeMusicLike (sr, 12.0, -8.0, 99, 0.3f, 0.2f); // brighter and narrower than the references
     juce::MidiBuffer midi;
     for (int start = 0; start < mix.getNumSamples(); start += 512)
     {
@@ -105,9 +107,25 @@ TEST_CASE ("Editor snapshots", "[.snapshot]")
         processor.processBlock (view, midi);
     }
 
+    processor.getAnalysis().processPending();
+
     auto editor = std::unique_ptr<juce::AudioProcessorEditor> (processor.createEditor());
     juce::MessageManager::getInstance()->runDispatchLoopUntil (600); // let timers and animations settle
     saveSnapshot (*editor, "benchmark-loaded");
+
+    for (auto* child : editor->getChildren())
+    {
+        if (auto* panel = dynamic_cast<benchmark::ui::AnalysisPanel*> (child))
+        {
+            panel->setTab (benchmark::ui::AnalysisPanel::Tab::stereo);
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (100);
+            saveSnapshot (*editor, "benchmark-stereo");
+            panel->setTab (benchmark::ui::AnalysisPanel::Tab::dynamics);
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (100);
+            saveSnapshot (*editor, "benchmark-dynamics");
+            panel->setTab (benchmark::ui::AnalysisPanel::Tab::tonal);
+        }
+    }
 
     editor->setSize (800, 512);
     juce::MessageManager::getInstance()->runDispatchLoopUntil (100);

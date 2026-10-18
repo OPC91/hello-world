@@ -17,6 +17,12 @@ namespace benchmark::ui
         inline const juce::Colour mix          { 0xff3ec7d6 };
         inline const juce::Colour reference    { 0xfff2a541 };
         inline const juce::Colour warning      { 0xffe86a5c };
+
+        // Chart marks: the same hues stepped for the dark chart surface
+        // (validated: OKLCH L 0.48-0.67, CVD separation 17 dE, >= 3:1 contrast).
+        inline const juce::Colour mixChart       { 0xff22a3b0 };
+        inline const juce::Colour referenceChart { 0xffc98026 };
+        inline const juce::Colour grid           { 0xff262a32 };
     }
 
     // Design is laid out on a 1000 x 640 grid and scaled with the window.

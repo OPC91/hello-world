@@ -4,7 +4,7 @@ Benchmark (working name) is a mix-referencing plugin. Put it on your master bus,
 
 Formats: **VST3**, **AU** (macOS) and **Standalone**, built with C++20, JUCE 8 and CMake.
 
-> **Status:** Phase 3 of 5. Reference loading, A/B switching, loudness matching and the reference transport (waveform, seeking, loops, markers, Free/Sync) work. The analysis displays and band solo come in later phases.
+> **Status:** Phase 4 of 5. Reference loading, A/B switching, loudness matching, the reference transport (waveform, seeking, loops, markers, Free/Sync) and the comparison analysis work. Band solo and alignment come in Phase 5.
 
 ## Using it
 
@@ -20,7 +20,12 @@ Formats: **VST3**, **AU** (macOS) and **Standalone**, built with C++20, JUCE 8 a
    - **Free**: the reference plays on its own. Use the play/pause button, seeking and loops.
    - **Sync**: the reference follows your DAW's transport (play/stop, position and cycle jumps). It is silent outside the file and doesn't loop. If the host gives no position, Benchmark plays freely instead.
    - Jumps, loop wraps and pause/resume use 5 ms crossfades, so they don't click.
-6. Missing reference files stay in the list in red. Click one to find the file again. Right-click a reference for more options.
+6. The **Comparison** panel analyses your mix and the playing reference side by side, always before any loudness-match gain. Each tab has plain-language notes on the right.
+   - **Tonal balance**: 1/3-octave smoothed spectra of both, each normalised to its own loudness, so you compare tone rather than level. Below them is the difference: above the line, the mix has more in that range; below it, less. Hover to read exact values at any frequency.
+   - **Stereo width**: for four bands (Low below 150 Hz, Low-mid up to 1 kHz, High-mid up to 5 kHz, High above that), the share of side energy and the L/R correlation for each source.
+   - **Dynamics**: PLR (sample peak minus integrated loudness), crest factor, loudness range (LRA), and 60 s of short-term loudness history.
+   - **Average** builds up from the last **Reset**, and silence is ignored, so a paused transport doesn't skew it. **Live** follows roughly the last 1.5 s. Loop a section of the reference and play the matching section of your mix for a like-for-like comparison. The reference side resets when you choose a different reference.
+7. Missing reference files stay in the list in red. Click one to find the file again. Right-click a reference for more options.
 
 Memory: references are stored decoded in memory, at about 11.5 MB per stereo minute at 48 kHz. Above 1.5 GB in total, the least recently used references are unloaded and reload when you select them.
 

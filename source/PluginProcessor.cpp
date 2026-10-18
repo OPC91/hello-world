@@ -28,11 +28,14 @@ namespace benchmark
         // Create the weak-reference master now, on the constructing thread, so that
         // setStateInformation() can safely take weak references from any thread.
         [[maybe_unused]] const juce::WeakReference<BenchmarkProcessor> init (this);
+
+        analysisEngine.startThread();
     }
 
     BenchmarkProcessor::~BenchmarkProcessor()
     {
         cancelPendingUpdate();
+        analysisEngine.stopThread();
     }
 
     //==============================================================================
@@ -58,6 +61,8 @@ namespace benchmark
 
         lastReference = nullptr;
         lastMeterUpdate = 0;
+
+        analysisEngine.setSampleRate (sampleRate);
 
         // The library resamples references to this rate on its own threads.
         hostSampleRate.store (sampleRate);
@@ -117,6 +122,7 @@ namespace benchmark
         {
             referenceMeter.reset();
             lastReference = reference;
+            analysisEngine.requestReset (false, true);
         }
 
         player.setReference (reference);
@@ -224,6 +230,7 @@ namespace benchmark
     {
         // The mix is always measured at the input, whichever source is audible.
         mixMeter.process (channels, numChannels, numSamples);
+        analysisEngine.pushMix (channels[0], channels[numChannels > 1 ? 1 : 0], numSamples);
 
         float* refChannels[2] { referenceScratch.getWritePointer (0), referenceScratch.getWritePointer (1) };
 
@@ -231,6 +238,7 @@ namespace benchmark
         {
             player.render (refChannels, numChannels, numSamples);
             referenceMeter.process (refChannels, numChannels, numSamples);
+            analysisEngine.pushReference (refChannels[0], refChannels[numChannels > 1 ? 1 : 0], numSamples);
         }
 
         // Fast path: only the untouched mix is audible.

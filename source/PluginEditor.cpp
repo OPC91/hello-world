@@ -9,7 +9,8 @@ namespace benchmark
           abToggle (*p.getValueTreeState().getParameter (ParamIDs::listenRef)),
           referenceList (p.getReferenceLibrary()),
           loudness (p),
-          waveform (p)
+          waveform (p),
+          analysis (p)
     {
         setLookAndFeel (&theme);
 
@@ -101,7 +102,7 @@ namespace benchmark
         referenceList.setBounds (area.removeFromLeft (juce::roundToInt ((float) area.getWidth() * 0.26f)));
         area.removeFromLeft (gap);
 
-        waveform.setBounds (area.removeFromTop (juce::roundToInt ((float) area.getHeight() * 0.34f)));
+        waveform.setBounds (area.removeFromTop (juce::roundToInt ((float) area.getHeight() * 0.30f)));
         area.removeFromTop (gap);
 
         auto controls = area.removeFromTop (juce::roundToInt (theme.px (112.0f)));

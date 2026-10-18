@@ -14,6 +14,12 @@ set(BENCHMARK_SOURCES
     ${BENCHMARK_SOURCE_DIR}/dsp/LoudnessMeter.cpp
     ${BENCHMARK_SOURCE_DIR}/dsp/ReferencePlayer.cpp
 
+    # Comparison analysis (background thread)
+    ${BENCHMARK_SOURCE_DIR}/analysis/AnalysisEngine.cpp
+    ${BENCHMARK_SOURCE_DIR}/analysis/DynamicsAnalyser.cpp
+    ${BENCHMARK_SOURCE_DIR}/analysis/HintGenerator.cpp
+    ${BENCHMARK_SOURCE_DIR}/analysis/SpectralAnalyser.cpp
+
     # Reference files (background threads)
     ${BENCHMARK_SOURCE_DIR}/reference/ReferenceDecoder.cpp
     ${BENCHMARK_SOURCE_DIR}/reference/ReferenceLibrary.cpp
@@ -22,8 +28,8 @@ set(BENCHMARK_SOURCES
 
     # UI
     ${BENCHMARK_SOURCE_DIR}/ui/ABToggle.cpp
+    ${BENCHMARK_SOURCE_DIR}/ui/AnalysisPanel.cpp
     ${BENCHMARK_SOURCE_DIR}/ui/LoudnessPanel.cpp
-    ${BENCHMARK_SOURCE_DIR}/ui/PlaceholderPanel.cpp
     ${BENCHMARK_SOURCE_DIR}/ui/ReferenceListPanel.cpp
     ${BENCHMARK_SOURCE_DIR}/ui/Theme.cpp
     ${BENCHMARK_SOURCE_DIR}/ui/WaveformView.cpp)
