@@ -1,3 +1,4 @@
+#include <thread>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 
@@ -337,4 +338,38 @@ TEST_CASE ("Processor state includes the reference list", "[state][library]")
         if (child->hasTagName ("References"))
             ++referenceLists;
     CHECK (referenceLists == 1);
+}
+
+TEST_CASE ("State restored from a background thread applies parameters immediately", "[state]")
+{
+    juce::ScopedJuceInitialiser_GUI juceInit;
+    testing::TempDir temp;
+    const auto file = temp / "ref.wav";
+    testing::writeWav (file, testing::makeSine (48000.0, 1.0, 1000.0, -20.0), 48000.0);
+
+    juce::MemoryBlock saved;
+    {
+        BenchmarkProcessor source;
+        source.prepareToPlay (48000.0, 512);
+        setParam (source, ParamIDs::listenRef, 1.0f);
+        setParam (source, ParamIDs::loudnessMatch, 0.0f);
+        source.getReferenceLibrary().addFiles ({ file });
+        source.getStateInformation (saved);
+    }
+
+    BenchmarkProcessor restored;
+    restored.prepareToPlay (48000.0, 512);
+
+    std::thread host ([&] { restored.setStateInformation (saved.getData(), (int) saved.getSize()); });
+    host.join();
+
+    // Like a host or validator reading values back straight away.
+    CHECK (juce::exactlyEqual (getParam (restored, ParamIDs::listenRef), 1.0f));
+    CHECK (juce::exactlyEqual (getParam (restored, ParamIDs::loudnessMatch), 0.0f));
+
+    // The reference list follows once the message thread runs.
+    juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
+    REQUIRE (restored.getReferenceLibrary().waitUntilLoaded (20000));
+    REQUIRE (restored.getReferenceLibrary().size() == 1);
+    CHECK (restored.getReferenceLibrary()[0].file == file);
 }

@@ -82,7 +82,6 @@ namespace benchmark
 
     private:
         void handleAsyncUpdate() override;
-        void restoreState (const juce::ValueTree& state);
         void processChunk (float* const* channels, int numChannels, int numSamples, const ReferenceAudio* reference) noexcept;
         void updateTransport() noexcept;
 

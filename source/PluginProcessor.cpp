@@ -288,29 +288,28 @@ namespace benchmark
             return; // Unknown or corrupt data: keep current state.
 
         auto state = juce::ValueTree::fromXml (*xml);
+        auto references = state.getChildWithName (ReferenceLibrary::stateType);
+        state.removeChild (references, nullptr);
+
+        if (! references.isValid())
+            references = juce::ValueTree (ReferenceLibrary::stateType);
+
+        // Parameters are restored immediately, whichever thread the host uses:
+        // hosts (and validators) read them back straight after this call.
+        parameters.replaceState (state);
 
         if (juce::MessageManager::existsAndIsCurrentThread())
         {
-            restoreState (state);
+            library.restoreState (references);
             return;
         }
 
-        // Some hosts restore state from a background thread; the library lives on the message thread.
-        juce::MessageManager::callAsync ([safeThis = juce::WeakReference<BenchmarkProcessor> (this), state]
+        // The reference library lives on the message thread.
+        juce::MessageManager::callAsync ([safeThis = juce::WeakReference<BenchmarkProcessor> (this), references]
         {
             if (auto* self = safeThis.get())
-                self->restoreState (state);
+                self->library.restoreState (references);
         });
-    }
-
-    void BenchmarkProcessor::restoreState (const juce::ValueTree& source)
-    {
-        auto state = source.createCopy();
-        const auto references = state.getChildWithName (ReferenceLibrary::stateType);
-        state.removeChild (references, nullptr);
-
-        parameters.replaceState (state);
-        library.restoreState (references.isValid() ? references : juce::ValueTree (ReferenceLibrary::stateType));
     }
 
     juce::Point<int> BenchmarkProcessor::getSavedEditorSize() const
