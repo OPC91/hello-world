@@ -161,6 +161,17 @@ void BreakForgeProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     }
 }
 
+void BreakForgeProcessor::processBlockBypassed (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
+{
+    // A bypassed instrument is silent, so there is no latency to match: silence is silence.
+    // Ringing voices are cut so nothing jumps back in when bypass is released.
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        buffer.clear (ch, 0, buffer.getNumSamples());
+
+    midi.clear();
+    engine.reset();
+}
+
 // -----------------------------------------------------------------------------
 
 void BreakForgeProcessor::publishModel()
@@ -283,6 +294,7 @@ int BreakForgeProcessor::generateFill()
 void BreakForgeProcessor::selectPattern (int index)
 {
     index = juce::jlimit (0, bf::kNumPatterns - 1, index);
+    editPattern = index;
     engine.requestPattern (index);
 
     if (auto* p = apvts.getParameter (bf::ParamID::pattern))
@@ -507,6 +519,13 @@ void BreakForgeProcessor::addGhostNotes()
 
 void BreakForgeProcessor::timerCallback()
 {
+    // Follow pattern changes made on the audio thread (MIDI pattern notes, automation).
+    if (const int playing = engine.getActivePattern(); playing != lastEnginePattern)
+    {
+        lastEnginePattern = playing;
+        editPattern = playing;
+    }
+
     if (const auto rate = pendingSampleRate.exchange (0.0); rate > 0.0)
         sampleManager.setSampleRate (rate);
 

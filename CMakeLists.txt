@@ -76,7 +76,15 @@ set(BREAKFORGE_CORE_SOURCES
 
 set(BREAKFORGE_PLUGIN_SOURCES
     Source/Plugin/PluginProcessor.cpp
-    Source/Plugin/PluginEditor.cpp)
+    Source/Plugin/PluginEditor.cpp
+    Source/UI/ExportHandle.cpp
+    Source/UI/PianoRoll.cpp
+    Source/UI/StepGrid.cpp
+    Source/UI/StepPopup.cpp
+    Source/UI/Theme.cpp
+    Source/UI/TopBar.cpp
+    Source/UI/TrackHeader.cpp
+    Source/UI/TrackPanel.cpp)
 
 target_sources(BreakForge PRIVATE ${BREAKFORGE_CORE_SOURCES} ${BREAKFORGE_PLUGIN_SOURCES})
 target_include_directories(BreakForge PRIVATE Source)

@@ -7,9 +7,12 @@ FetchContent_MakeAvailable(Catch2)
 juce_add_console_app(BreakForgeTests PRODUCT_NAME "BreakForgeTests")
 
 list(TRANSFORM BREAKFORGE_CORE_SOURCES PREPEND "${PROJECT_SOURCE_DIR}/" OUTPUT_VARIABLE BREAKFORGE_TEST_CORE_SOURCES)
+list(TRANSFORM BREAKFORGE_PLUGIN_SOURCES PREPEND "${PROJECT_SOURCE_DIR}/" OUTPUT_VARIABLE BREAKFORGE_TEST_PLUGIN_SOURCES)
 
 target_sources(BreakForgeTests PRIVATE
     ${BREAKFORGE_TEST_CORE_SOURCES}
+    ${BREAKFORGE_TEST_PLUGIN_SOURCES}
+    PluginStateTests.cpp
     EngineTests.cpp
     ExportTests.cpp
     GeneratorTests.cpp
@@ -20,9 +23,12 @@ target_sources(BreakForgeTests PRIVATE
 
 target_include_directories(BreakForgeTests PRIVATE "${PROJECT_SOURCE_DIR}/Source")
 
+# The processor is compiled in directly (not as a plugin), so provide the plugin macros it uses.
 target_compile_definitions(BreakForgeTests PRIVATE
     JUCE_WEB_BROWSER=0
-    JUCE_USE_CURL=0)
+    JUCE_USE_CURL=0
+    JucePlugin_Name="BreakForge"
+    JUCE_MODAL_LOOPS_PERMITTED=1)
 
 target_link_libraries(BreakForgeTests PRIVATE
     Catch2::Catch2WithMain

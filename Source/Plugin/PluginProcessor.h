@@ -30,7 +30,9 @@ public:
     void releaseResources() override {}
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    void processBlockBypassed (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     using AudioProcessor::processBlock;
+    using AudioProcessor::processBlockBypassed;
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
@@ -83,8 +85,9 @@ public:
 
     std::array<TrackSettings, bf::kNumTracks>& getTrackSettings() noexcept { return trackSettings; }
 
-    /** Pattern currently selected for editing (follows the playing pattern). */
-    int getEditPattern() const noexcept { return engine.getActivePattern(); }
+    /** Pattern selected for editing. Set immediately by the UI, and follows the playing pattern
+        when MIDI notes or automation switch it on the audio thread. */
+    int getEditPattern() const noexcept { return editPattern; }
     void selectPattern (int index);
 
     // Groove ----------------------------------------------------------------
@@ -156,6 +159,8 @@ private:
     bf::TripleBuffer<bf::SequencerSnapshot> snapshot;
     std::array<TrackSettings, bf::kNumTracks> trackSettings;
     std::vector<bf::PatternBank> undoStack, redoStack;
+    int editPattern = 0;
+    int lastEnginePattern = 0;
     static constexpr size_t maxUndo = 64;
 
     bf::TrackOutputs trackOutputs;
