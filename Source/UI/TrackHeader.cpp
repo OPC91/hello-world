@@ -96,6 +96,9 @@ void SampleSlot::showMenu()
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
                         [this, kitSounds, current] (int result) {
+                            if (result == 0)
+                                return; // dismissed (also sent if this component was deleted)
+
                             auto& p = state.processor;
                             if (result == 1) browse();
                             else if (result == 2) p.randomizeSample (track);

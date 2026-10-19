@@ -28,7 +28,7 @@ TrackPanel::TrackPanel (EditorState& s) : state (s)
         state.processor.editModel ([t, note] (SequencerSnapshot& m) { m.midiNotes[(size_t) t] = note; }, false);
     };
 
-    for (auto* l : { &envLabel, &chokeLabel, &noteLabel })
+    for (auto* l : { &envLabel, &noteLabel })
     {
         l->setFont (font (11.5f));
         l->setColour (juce::Label::textColourId, Colours::textDim);
@@ -37,7 +37,6 @@ TrackPanel::TrackPanel (EditorState& s) : state (s)
     }
 
     envLabel.setText ("Envelope", juce::dontSendNotification);
-    chokeLabel.setText ("Choke group", juce::dontSendNotification);
     noteLabel.setText ("MIDI note", juce::dontSendNotification);
 
     for (auto* c : std::initializer_list<juce::Component*> { &envMode, &choke, &swingOverride, &midiNote })
@@ -112,7 +111,6 @@ void TrackPanel::resized()
     auto note = r.removeFromRight (96);
     noteLabel.setBounds (note.removeFromTop (note.getHeight() / 2).withTrimmedTop (8));
     midiNote.setBounds (note.removeFromTop (24).reduced (4, 0));
-    chokeLabel.setVisible (false);
 
     const int knobW = r.getWidth() / (int) knobs.size();
 

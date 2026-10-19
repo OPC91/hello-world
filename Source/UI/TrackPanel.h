@@ -45,7 +45,7 @@ private:
     juce::ToggleButton swingOverride { "Own swing" };
     std::unique_ptr<ButtonAttachment> swingAttachment;
     juce::Slider midiNote;
-    juce::Label envLabel, chokeLabel, noteLabel;
+    juce::Label envLabel, noteLabel;
 };
 
 } // namespace bf::ui

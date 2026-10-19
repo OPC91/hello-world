@@ -81,6 +81,9 @@ void PatternSelector::mouseDown (const juce::MouseEvent& e)
     menu.addItem (1, "Clear slot " + juce::String (index + 1));
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [this, index] (int r) {
+        if (r == 0)
+            return;
+
         if (r == 1)
             state.processor.editModel ([index] (SequencerSnapshot& m) { m.bank.patterns[(size_t) index] = Pattern {}; });
         else if (r >= 100)
@@ -218,6 +221,9 @@ void TopBar::showGrooveMenu()
     menu.addItem (3, "Reveal grooves folder");
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&grooveMenu), [this, files] (int r) {
+        if (r == 0)
+            return;
+
         auto& proc = state.processor;
 
         if (r == 1)
@@ -226,12 +232,12 @@ void TopBar::showGrooveMenu()
             w->addTextEditor ("name", "My Groove");
             w->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
             w->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
-            w->enterModalState (true, juce::ModalCallbackFunction::create ([this, w] (int result) {
-                if (result == 1)
+            w->enterModalState (true, juce::ModalCallbackFunction::create ([safe = juce::Component::SafePointer<TopBar> (this), w] (int result) {
+                if (result == 1 && safe != nullptr)
                 {
                     const auto name = w->getTextEditorContents ("name");
-                    const bool ok = state.processor.saveUserGroove (name);
-                    if (state.showStatus) state.showStatus (ok ? "Groove saved: " + name : "Could not save groove");
+                    const bool ok = safe->state.processor.saveUserGroove (name);
+                    if (safe->state.showStatus) safe->state.showStatus (ok ? "Groove saved: " + name : "Could not save groove");
                 }
             }), true);
         }
@@ -372,18 +378,8 @@ PatternBar::PatternBar (EditorState& s) : state (s)
     copy.setTooltip ("Copy pattern (Ctrl/Cmd+C)");
     paste.setTooltip ("Paste pattern (Ctrl/Cmd+V)");
     clear.setTooltip ("Clear pattern");
-    copy.onClick = [this] {
-        const auto& p = state.processor.getModel().bank.patterns[(size_t) state.processor.getEditPattern()];
-        juce::SystemClipboard::copyTextToClipboard (StateIO::patternToString (p));
-        setStatus ("Pattern copied");
-    };
-    paste.onClick = [this] {
-        Pattern p;
-        if (StateIO::patternFromString (juce::SystemClipboard::getTextFromClipboard(), p))
-            editPattern ([&p] (Pattern& target) { target = p; });
-        else
-            setStatus ("Clipboard has no BreakForge pattern");
-    };
+    copy.onClick = [this] { copyPattern(); };
+    paste.onClick = [this] { pastePattern(); };
     clear.onClick = [this] { editPattern ([] (Pattern& p) { p.clear(); }); };
 
     ghosts.setTooltip ("Add low-velocity ghost snares in classic DnB positions");
@@ -434,6 +430,23 @@ void PatternBar::editPattern (const std::function<void (Pattern&)>& fn)
     const int slot = state.processor.getEditPattern();
     state.processor.editModel ([&] (SequencerSnapshot& m) { fn (m.bank.patterns[(size_t) slot]); });
     refresh();
+}
+
+void PatternBar::copyPattern()
+{
+    const auto& p = state.processor.getModel().bank.patterns[(size_t) state.processor.getEditPattern()];
+    juce::SystemClipboard::copyTextToClipboard (StateIO::patternToString (p));
+    setStatus ("Pattern " + juce::String (state.processor.getEditPattern() + 1) + " copied");
+}
+
+void PatternBar::pastePattern()
+{
+    Pattern p;
+
+    if (StateIO::patternFromString (juce::SystemClipboard::getTextFromClipboard(), p))
+        editPattern ([&p] (Pattern& target) { target = p; });
+    else
+        setStatus ("Clipboard has no BreakForge pattern");
 }
 
 void PatternBar::refresh()

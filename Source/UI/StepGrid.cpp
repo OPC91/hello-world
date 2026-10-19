@@ -332,8 +332,10 @@ void StepGrid::openStepPopup (int track, int step)
             st.on = true;
         });
 
+    // Parented to the editor so the popup can never outlive it.
+    auto* editor = getTopLevelComponent();
     juce::CallOutBox::launchAsynchronously (std::make_unique<StepPopup> (state, track, step, [this] { repaint(); }),
-                                            localAreaToGlobal (cell), nullptr);
+                                            editor->getLocalArea (this, cell), editor);
 }
 
 } // namespace bf::ui

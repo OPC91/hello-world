@@ -69,6 +69,8 @@ public:
     void resized() override;
     void refresh();
     void setStatus (const juce::String&);
+    void copyPattern();
+    void pastePattern();
 
 private:
     void editPattern (const std::function<void (Pattern&)>&);

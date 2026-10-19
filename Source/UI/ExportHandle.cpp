@@ -73,6 +73,7 @@ void ExportHandle::showMenu()
     menu.addItem (4, "Reveal export folder");
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [this] (int r) {
+        if (r == 0) return;
         if (r == 1) kind = Kind::Midi;
         if (r == 2) kind = Kind::AudioMix;
         if (r == 3) kind = Kind::AudioStems;

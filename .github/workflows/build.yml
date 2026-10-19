@@ -1,0 +1,76 @@
+name: Build & test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (VST3 + AU, universal)
+            os: macos-14
+            pluginval: pluginval_macOS.zip
+            extra: -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          - name: Windows (VST3)
+            os: windows-2022
+            pluginval: pluginval_Windows.zip
+            extra: ""
+          - name: Linux (VST3)
+            os: ubuntu-24.04
+            pluginval: pluginval_Linux.zip
+            extra: -G Ninja
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libasound2-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+            libxext-dev libxcomposite-dev libfontconfig1-dev libfreetype-dev libgl1-mesa-dev xvfb
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release ${{ matrix.extra }}
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Unit tests
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: pluginval (strictness 5)
+        shell: bash
+        run: |
+          curl -sSL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/latest/download/${{ matrix.pluginval }}"
+          unzip -q pluginval.zip
+          case "$RUNNER_OS" in
+            macOS)   PV=./pluginval.app/Contents/MacOS/pluginval ;;
+            Windows) PV=./pluginval.exe ;;
+            *)       PV=./pluginval; Xvfb :99 & export DISPLAY=:99 ;;
+          esac
+          "$PV" --strictness-level 5 --validate "build/BreakForge_artefacts/Release/VST3/BreakForge.vst3"
+
+      - name: auval
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R build/BreakForge_artefacts/Release/AU/BreakForge.component ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar || true
+          auval -v aumu Bfg1 Bfrg
+
+      - name: Upload plugins
+        uses: actions/upload-artifact@v4
+        with:
+          name: BreakForge-${{ runner.os }}
+          path: |
+            build/BreakForge_artefacts/Release/VST3
+            build/BreakForge_artefacts/Release/AU
+            build/BreakForge_artefacts/Release/Standalone
+          if-no-files-found: ignore

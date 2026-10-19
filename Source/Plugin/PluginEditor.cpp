@@ -153,6 +153,9 @@ bool BreakForgeEditor::keyPressed (const juce::KeyPress& key)
         return true;
     }
 
+    if (cmd && (code == 'C' || code == 'c')) { patternBar.copyPattern(); return true; }
+    if (cmd && (code == 'V' || code == 'v')) { patternBar.pastePattern(); return true; }
+
     if (cmd && (code == 'Y' || code == 'y'))
     {
         processor.redo();
