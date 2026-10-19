@@ -58,10 +58,12 @@ set(BREAKFORGE_CORE_SOURCES
     Source/Core/AudioFileLoader.cpp
     Source/Core/BuiltInKits.cpp
     Source/Core/DrumSynth.cpp
+    Source/Core/Exporter.cpp
     Source/Core/FactoryPatterns.cpp
     Source/Core/Engine.cpp
     Source/Core/GrooveEngine.cpp
     Source/Core/KitLibrary.cpp
+    Source/Core/MasterBus.cpp
     Source/Core/Params.cpp
     Source/Core/Pattern.cpp
     Source/Core/PatternGenerator.cpp

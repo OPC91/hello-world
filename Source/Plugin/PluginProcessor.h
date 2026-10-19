@@ -3,7 +3,9 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "Core/Engine.h"
+#include "Core/Exporter.h"
 #include "Core/KitLibrary.h"
+#include "Core/MasterBus.h"
 #include "Core/Params.h"
 #include "Core/PatternGenerator.h"
 #include "Core/SampleManager.h"
@@ -104,6 +106,13 @@ public:
     void loadSample (int track, const bf::SampleRef&);
     bf::SampleManager& getSampleManager() noexcept { return sampleManager; }
 
+    // Export ----------------------------------------------------------------
+    enum class ExportKind { Midi, AudioMix, AudioStems };
+
+    /** Renders the edit pattern in the background (with swing and humanize, at the host tempo
+        and rate) and calls back on the message thread with the written files. */
+    void exportPattern (ExportKind, int bars, std::function<void (juce::Array<juce::File>, juce::String error)> onDone);
+
     // Kits ------------------------------------------------------------------
     const std::vector<bf::KitInfo>& getKits() const noexcept { return kits; }
     const juce::String& getCurrentKit() const noexcept { return currentKit; }
@@ -150,6 +159,8 @@ private:
     static constexpr size_t maxUndo = 64;
 
     bf::TrackOutputs trackOutputs;
+    bf::MasterBus masterBus;
+    std::array<bf::LatencyDelay, bf::kNumTracks> auxDelays;
     std::shared_ptr<bool> aliveFlag = std::make_shared<bool> (true);
 
     const bf::KitInfo* findKit (const juce::String&) const;

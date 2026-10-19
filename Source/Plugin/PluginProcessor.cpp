@@ -74,6 +74,13 @@ bool BreakForgeProcessor::isBusesLayoutSupported (const BusesLayout& layouts) co
 void BreakForgeProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     engine.prepare (sampleRate, samplesPerBlock);
+    masterBus.prepare (sampleRate, samplesPerBlock);
+
+    // Track buses skip the master section, so they are delayed to stay in sync with the main out.
+    for (auto& d : auxDelays)
+        d.prepare (masterBus.getLatency(), samplesPerBlock);
+
+    setLatencySamples (masterBus.getLatency());
 
     // Samples are (re)built at the new rate in the background. Until they arrive the voices play
     // the old buffers with rate compensation, so playback stays in tune.
@@ -139,6 +146,19 @@ void BreakForgeProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
     engine.process (mainBus, &trackOutputs, midi, transport, engineParams, snap);
     mainBus.applyGain (engineParams.masterGain);
+    masterBus.process (mainBus, engineParams.drive, engineParams.driveOn, engineParams.limiterOn);
+
+    for (int t = 0; t < bf::kNumTracks; ++t)
+    {
+        auto& ch = trackOutputs.channels[(size_t) t];
+
+        if (ch[0] != nullptr)
+        {
+            juce::FloatVectorOperations::multiply (ch[0], engineParams.masterGain, buffer.getNumSamples());
+            juce::FloatVectorOperations::multiply (ch[1], engineParams.masterGain, buffer.getNumSamples());
+            auxDelays[(size_t) t].process (ch[0], ch[1], buffer.getNumSamples());
+        }
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -332,6 +352,79 @@ void BreakForgeProcessor::randomizeAllSamples()
     for (int t = 0; t < bf::kNumTracks; ++t)
         if (! trackSettings[(size_t) t].sampleLocked)
             randomizeSample (t);
+}
+
+void BreakForgeProcessor::exportPattern (ExportKind kind, int bars, std::function<void (juce::Array<juce::File>, juce::String)> onDone)
+{
+    // Snapshot everything on the message thread; the render itself runs in the background.
+    bf::Exporter::RenderRequest req;
+    {
+        const juce::ScopedLock sl (modelLock);
+        req.snapshot = model;
+    }
+
+    paramCache.read (req.params);
+    req.pattern = getEditPattern();
+    req.sampleRate = getSampleRate() > 0.0 ? getSampleRate() : 48000.0;
+    req.bpm = engine.getLastBpm();
+    req.bars = bars;
+    req.renderStems = kind == ExportKind::AudioStems;
+
+    for (int t = 0; t < bf::kNumTracks; ++t)
+        req.samples[(size_t) t] = sampleSlots.get (t);
+
+    juce::StringArray trackNames;
+    for (const auto& ts : trackSettings)
+        trackNames.add (ts.name);
+
+    const auto baseName = "BreakForge P" + juce::String (req.pattern + 1) + " " + juce::String (juce::roundToInt (req.bpm)) + "bpm";
+
+    backgroundPool.addJob ([kind, req, baseName, trackNames, onDone, alive = std::weak_ptr<bool> (aliveFlag)] {
+        juce::Array<juce::File> files;
+        juce::String error;
+        const auto folder = bf::Exporter::getExportFolder();
+
+        if (kind == ExportKind::Midi)
+        {
+            const auto& pattern = req.snapshot.bank.patterns[(size_t) req.pattern];
+            const auto ctx = bf::Engine::makeGrooveContext (req.params, req.snapshot);
+            const auto midi = bf::Exporter::makeMidiFile (pattern, ctx, req.snapshot.midiNotes, req.bpm, req.bars, baseName);
+            const auto file = folder.getChildFile (baseName + ".mid");
+
+            if (bf::Exporter::writeMidi (file, midi))
+                files.add (file);
+            else
+                error = "Could not write " + file.getFullPathName();
+        }
+        else
+        {
+            const auto result = bf::Exporter::render (req);
+
+            if (kind == ExportKind::AudioMix)
+            {
+                const auto file = folder.getChildFile (baseName + ".wav");
+                if (bf::Exporter::writeWav (file, result.mix, req.sampleRate)) files.add (file);
+                else error = "Could not write " + file.getFullPathName();
+            }
+            else
+            {
+                for (int t = 0; t < bf::kNumTracks; ++t)
+                {
+                    if (! result.trackHasAudio[(size_t) t])
+                        continue;
+
+                    const auto file = folder.getChildFile (juce::File::createLegalFileName (baseName + " - " + trackNames[t]) + ".wav");
+                    if (bf::Exporter::writeWav (file, result.stems[(size_t) t], req.sampleRate)) files.add (file);
+                    else error = "Could not write " + file.getFullPathName();
+                }
+            }
+        }
+
+        juce::MessageManager::callAsync ([files, error, onDone, alive] {
+            if (! alive.expired() && onDone != nullptr)
+                onDone (files, error);
+        });
+    });
 }
 
 void BreakForgeProcessor::rescanKits()
