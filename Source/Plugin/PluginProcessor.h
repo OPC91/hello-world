@@ -63,6 +63,21 @@ public:
     int getEditPattern() const noexcept { return engine.getActivePattern(); }
     void selectPattern (int index);
 
+    // Groove ----------------------------------------------------------------
+    /** Selects a groove template and sets the swing knob to the template's swing. */
+    void applyGrooveTemplate (int index);
+    /** New humanize seed: playback stays repeatable, but with a different random feel. */
+    void rerollHumanize();
+    /** Saves the active template (with the current swing) to the user groove folder. */
+    bool saveUserGroove (const juce::String& name);
+    /** Loads a user groove file into the "User" template slot and selects it. */
+    bool loadUserGroove (const juce::File&);
+    void addGhostNotes();
+
+    /** Sets a parameter from the message thread as a complete host gesture. */
+    void setParameterValue (const juce::String& id, float plainValue);
+    float getParameterValue (const juce::String& id) const;
+
     bf::Engine& getEngine() noexcept { return engine; }
     bf::SampleSlots& getSampleSlots() noexcept { return sampleSlots; }
 

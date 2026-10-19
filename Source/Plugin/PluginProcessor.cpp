@@ -1,7 +1,9 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "Core/DrumSynth.h"
+#include "Core/PatternTools.h"
 #include "Core/StateIO.h"
+#include "Core/UserLibrary.h"
 
 namespace
 {
@@ -146,6 +148,69 @@ void BreakForgeProcessor::selectPattern (int index)
 
     if (auto* p = apvts.getParameter (bf::ParamID::pattern))
         p->setValueNotifyingHost (p->convertTo0to1 ((float) (index + 1)));
+}
+
+void BreakForgeProcessor::setParameterValue (const juce::String& id, float plainValue)
+{
+    if (auto* p = apvts.getParameter (id))
+    {
+        p->beginChangeGesture();
+        p->setValueNotifyingHost (p->convertTo0to1 (plainValue));
+        p->endChangeGesture();
+    }
+}
+
+float BreakForgeProcessor::getParameterValue (const juce::String& id) const
+{
+    if (auto* v = apvts.getRawParameterValue (id))
+        return v->load();
+
+    return 0.0f;
+}
+
+void BreakForgeProcessor::applyGrooveTemplate (int index)
+{
+    index = juce::jlimit (0, bf::kNumGrooves - 1, index);
+    const auto& t = index < bf::groove::numFactoryTemplates ? bf::groove::factoryTemplate (index) : model.userGroove;
+    setParameterValue (bf::ParamID::groove, (float) index);
+    setParameterValue (bf::ParamID::swing, t.swing * 100.0f);
+}
+
+void BreakForgeProcessor::rerollHumanize()
+{
+    editModel ([] (bf::SequencerSnapshot& m) {
+        m.humanizeSeed = (std::uint32_t) juce::Random::getSystemRandom().nextInt() | 1u;
+    });
+}
+
+bool BreakForgeProcessor::saveUserGroove (const juce::String& name)
+{
+    const int index = (int) getParameterValue (bf::ParamID::groove);
+    auto t = index < bf::groove::numFactoryTemplates ? bf::groove::factoryTemplate (index) : model.userGroove;
+    t.swing = getParameterValue (bf::ParamID::swing) * 0.01f;
+    return bf::UserLibrary::saveGroove (name, t);
+}
+
+bool BreakForgeProcessor::loadUserGroove (const juce::File& file)
+{
+    bf::GrooveTemplate t;
+
+    if (! bf::UserLibrary::loadGroove (file, t))
+        return false;
+
+    editModel ([&t] (bf::SequencerSnapshot& m) { m.userGroove = t; });
+    applyGrooveTemplate (bf::kNumGrooves - 1);
+    return true;
+}
+
+void BreakForgeProcessor::addGhostNotes()
+{
+    const int pattern = getEditPattern();
+    editModel ([pattern] (bf::SequencerSnapshot& m) {
+        bf::PatternTools::addGhostNotes (m.bank.patterns[(size_t) pattern],
+                                         bf::trackForRole (bf::Role::GhostSnare), bf::trackForRole (bf::Role::Snare),
+                                         (std::uint32_t) juce::Random::getSystemRandom().nextInt());
+    });
 }
 
 void BreakForgeProcessor::timerCallback()

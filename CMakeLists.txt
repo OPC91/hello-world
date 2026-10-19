@@ -60,8 +60,10 @@ set(BREAKFORGE_CORE_SOURCES
     Source/Core/GrooveEngine.cpp
     Source/Core/Params.cpp
     Source/Core/Pattern.cpp
+    Source/Core/PatternTools.cpp
     Source/Core/Scheduler.cpp
     Source/Core/StateIO.cpp
+    Source/Core/UserLibrary.cpp
     Source/Core/Voice.cpp)
 
 set(BREAKFORGE_PLUGIN_SOURCES
