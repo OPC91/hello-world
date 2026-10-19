@@ -13,6 +13,7 @@ endif()
 
 option(BREAKFORGE_BUILD_TESTS "Build the unit tests" ON)
 option(BREAKFORGE_COPY_PLUGIN "Copy the built plugin into the system plug-in folder" OFF)
+option(BREAKFORGE_ENABLE_LTO "Link-time optimisation for Release builds" ON)
 
 # ------------------------------------------------------------------------------
 # Dependencies. Override with -DFETCHCONTENT_SOURCE_DIR_JUCE=/path/to/JUCE (and
@@ -102,7 +103,7 @@ target_link_libraries(BreakForge
         juce::juce_dsp
     PUBLIC
         juce::juce_recommended_config_flags
-        juce::juce_recommended_lto_flags
+        $<$<BOOL:${BREAKFORGE_ENABLE_LTO}>:juce::juce_recommended_lto_flags>
         juce::juce_recommended_warning_flags)
 
 # ------------------------------------------------------------------------------

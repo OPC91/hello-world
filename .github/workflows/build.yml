@@ -16,7 +16,9 @@ jobs:
           - name: macOS (VST3 + AU, universal)
             os: macos-14
             pluginval: pluginval_macOS.zip
-            extra: -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+            # Two architectures with LTO is very slow on the hosted runners; CI only needs to
+            # prove the build, so LTO is off here (it stays on for local Release builds).
+            extra: -G Ninja -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DBREAKFORGE_ENABLE_LTO=OFF
           - name: Windows (VST3)
             os: windows-2022
             pluginval: pluginval_Windows.zip
@@ -29,6 +31,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: macOS dependencies
+        if: runner.os == 'macOS'
+        run: brew install ninja || true
+
       - name: Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -40,7 +46,8 @@ jobs:
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release ${{ matrix.extra }}
 
       - name: Build
-        run: cmake --build build --config Release --parallel
+        # A bounded job count: an unbounded `make -j` can exhaust runner memory.
+        run: cmake --build build --config Release --parallel 4
 
       - name: Unit tests
         run: ctest --test-dir build -C Release --output-on-failure
