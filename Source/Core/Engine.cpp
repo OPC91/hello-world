@@ -84,6 +84,9 @@ void Engine::process (juce::AudioBuffer<float>& main, const TrackOutputs* trackO
     const int numSamples = main.getNumSamples();
     scratchMidi.clear();
 
+    if (transport.bpm > 0.0)
+        lastBpm.store (transport.bpm, std::memory_order_relaxed);
+
     TransportInfo chunkTransport = transport;
     const double samplesPerPpq = transport.bpm > 0.0 ? sampleRate * 60.0 / transport.bpm : 1.0;
 

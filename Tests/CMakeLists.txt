@@ -11,6 +11,7 @@ list(TRANSFORM BREAKFORGE_CORE_SOURCES PREPEND "${PROJECT_SOURCE_DIR}/" OUTPUT_V
 target_sources(BreakForgeTests PRIVATE
     ${BREAKFORGE_TEST_CORE_SOURCES}
     EngineTests.cpp
+    GeneratorTests.cpp
     GrooveTests.cpp
     KitTests.cpp
     SampleTests.cpp

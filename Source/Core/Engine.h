@@ -47,6 +47,8 @@ public:
     int getActivePattern() const noexcept       { return activePatternForUi.load(); }
     /** Fractional step of the playing pattern, or -1 if the sequencer is not running. */
     float getPlayheadStep() const noexcept      { return playheadStep.load(); }
+    /** Host tempo seen in the last block (for tempo-aware generation and export). */
+    double getLastBpm() const noexcept          { return lastBpm.load(); }
     /** Bit mask of tracks that triggered since the last call (for UI activity LEDs). */
     std::uint32_t takeTriggeredTracks() noexcept { return triggeredTracks.exchange (0); }
 
@@ -100,6 +102,7 @@ private:
 
     std::atomic<int> activePatternForUi { 0 };
     std::atomic<float> playheadStep { -1.0f };
+    std::atomic<double> lastBpm { 174.0 };
     std::atomic<std::uint32_t> triggeredTracks { 0 };
 };
 

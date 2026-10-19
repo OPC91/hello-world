@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "Core/BuiltInKits.h"
+#include "Core/FactoryPatterns.h"
 #include "Core/PatternTools.h"
 #include "Core/KitLibrary.h"
 #include "Core/StateIO.h"
@@ -37,11 +38,7 @@ BreakForgeProcessor::BreakForgeProcessor()
         sampleManager.load (t, bf::BuiltInKits::defaultFor (bf::kTrackDefaults[(size_t) t].role));
     }
 
-    // Temporary default: a plain two-step so the sequencer is audible until the factory content lands.
-    auto& p = model.bank.patterns[0];
-    for (int s : { 0, 10 }) p.tracks[0].steps[(size_t) s].on = true;
-    for (int s : { 4, 12 }) p.tracks[1].steps[(size_t) s].on = true;
-
+    model.bank = bf::FactoryPatterns::makeBank();
     publishModel();
     kits = bf::KitLibrary::scan ({}); // built-in kits now, user kits once the background scan finishes
     rescanKits();
@@ -150,6 +147,117 @@ void BreakForgeProcessor::publishModel()
 {
     const juce::ScopedLock sl (modelLock);
     snapshot.publish (model);
+}
+
+void BreakForgeProcessor::pushUndoState()
+{
+    undoStack.push_back (model.bank);
+
+    if (undoStack.size() > maxUndo)
+        undoStack.erase (undoStack.begin());
+
+    redoStack.clear();
+}
+
+void BreakForgeProcessor::undo()
+{
+    if (undoStack.empty())
+        return;
+
+    editModel ([this] (bf::SequencerSnapshot& m) {
+        redoStack.push_back (m.bank);
+        m.bank = undoStack.back();
+        undoStack.pop_back();
+    }, false);
+}
+
+void BreakForgeProcessor::redo()
+{
+    if (redoStack.empty())
+        return;
+
+    editModel ([this] (bf::SequencerSnapshot& m) {
+        undoStack.push_back (m.bank);
+        m.bank = redoStack.back();
+        redoStack.pop_back();
+    }, false);
+}
+
+bf::PatternGenerator::Options BreakForgeProcessor::makeGeneratorOptions()
+{
+    bf::PatternGenerator::Options o;
+    o.style = (bf::SubStyle) juce::jlimit (0, bf::kNumSubStyles - 1, (int) getParameterValue (bf::ParamID::subStyle));
+    o.variation = getParameterValue (bf::ParamID::variation) * 0.01f;
+    o.seed = (std::uint32_t) random.nextInt();
+
+    const auto& current = model.bank.patterns[(size_t) getEditPattern()];
+    o.length = current.length;
+    o.resolution = current.resolution;
+
+    for (int t = 0; t < bf::kNumTracks; ++t)
+        o.locked[(size_t) t] = trackSettings[(size_t) t].generatorLocked;
+
+    // If the FX track holds a riser / reverse cymbal, let the generator swell it into the loop.
+    const auto fxTrack = bf::trackForRole (bf::Role::FX);
+
+    if (auto fx = sampleSlots.get (fxTrack); fx != nullptr)
+    {
+        const auto name = fx->name.toLowerCase();
+
+        if (name.contains ("reverse") || name.contains ("riser") || name.contains ("swell") || name.contains ("rev "))
+            o.fxRiserLengthPpq = fx->buffer.getNumSamples() / fx->sampleRate * engine.getLastBpm() / 60.0;
+    }
+
+    return o;
+}
+
+void BreakForgeProcessor::generatePattern()
+{
+    const auto opts = makeGeneratorOptions();
+    const int slot = getEditPattern();
+    const auto base = model.bank.patterns[(size_t) slot];
+
+    backgroundPool.addJob ([this, opts, slot, base, alive = std::weak_ptr<bool> (aliveFlag)] {
+        auto result = bf::PatternGenerator::generate (opts, base);
+
+        juce::MessageManager::callAsync ([this, result, slot, style = opts.style, alive] {
+            if (alive.expired())
+                return;
+
+            editModel ([&] (bf::SequencerSnapshot& m) { m.bank.patterns[(size_t) slot] = result; });
+
+            // Generated patterns are meant to be heard through a style-appropriate groove.
+            const auto g = bf::PatternGenerator::suggestedGroove (style);
+            setParameterValue (bf::ParamID::groove, (float) g.templateIndex);
+            setParameterValue (bf::ParamID::swing, g.swing * 100.0f);
+        });
+    });
+}
+
+void BreakForgeProcessor::generateTrack (int track)
+{
+    if (track < 0 || track >= bf::kNumTracks)
+        return;
+
+    const auto opts = makeGeneratorOptions();
+    const int slot = getEditPattern();
+
+    editModel ([&] (bf::SequencerSnapshot& m) {
+        bf::PatternGenerator::generateTrack (m.bank.patterns[(size_t) slot], track, opts);
+    });
+}
+
+int BreakForgeProcessor::generateFill()
+{
+    const auto opts = makeGeneratorOptions();
+    const int source = getEditPattern();
+    const int target = (source + 1) % bf::kNumPatterns;
+
+    editModel ([&] (bf::SequencerSnapshot& m) {
+        m.bank.patterns[(size_t) target] = bf::PatternGenerator::generateFill (m.bank.patterns[(size_t) source], opts);
+    });
+
+    return target;
 }
 
 void BreakForgeProcessor::selectPattern (int index)
@@ -271,7 +379,7 @@ void BreakForgeProcessor::rerollHumanize()
 {
     editModel ([] (bf::SequencerSnapshot& m) {
         m.humanizeSeed = (std::uint32_t) juce::Random::getSystemRandom().nextInt() | 1u;
-    });
+    }, false);
 }
 
 bool BreakForgeProcessor::saveUserGroove (const juce::String& name)
@@ -289,7 +397,7 @@ bool BreakForgeProcessor::loadUserGroove (const juce::File& file)
     if (! bf::UserLibrary::loadGroove (file, t))
         return false;
 
-    editModel ([&t] (bf::SequencerSnapshot& m) { m.userGroove = t; });
+    editModel ([&t] (bf::SequencerSnapshot& m) { m.userGroove = t; }, false);
     applyGrooveTemplate (bf::kNumGrooves - 1);
     return true;
 }

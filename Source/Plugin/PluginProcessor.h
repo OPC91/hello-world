@@ -5,6 +5,7 @@
 #include "Core/Engine.h"
 #include "Core/KitLibrary.h"
 #include "Core/Params.h"
+#include "Core/PatternGenerator.h"
 #include "Core/SampleManager.h"
 #include "Core/TripleBuffer.h"
 
@@ -50,14 +51,33 @@ public:
     // Message-thread model access ------------------------------------------
     const bf::SequencerSnapshot& getModel() const noexcept { return model; }
 
-    /** Applies an edit to the sequencer model and publishes it to the audio thread. */
+    /** Applies an edit to the sequencer model and publishes it to the audio thread.
+        Pass undoable = false for the 2nd and later edits of one mouse gesture. */
     template <typename Fn>
-    void editModel (Fn&& fn)
+    void editModel (Fn&& fn, bool undoable = true)
     {
         const juce::ScopedLock sl (modelLock);
+
+        if (undoable)
+            pushUndoState();
+
         fn (model);
         publishModel();
+        modelChanged.sendChangeMessage();
     }
+
+    bool canUndo() const noexcept { return ! undoStack.empty(); }
+    bool canRedo() const noexcept { return ! redoStack.empty(); }
+    void undo();
+    void redo();
+
+    // Generator -------------------------------------------------------------
+    /** Generates a new pattern for the edit slot in the background (locked tracks are kept). */
+    void generatePattern();
+    /** Re-rolls one track of the edit pattern. */
+    void generateTrack (int track);
+    /** Writes a one-bar fill based on the edit pattern into the next slot. Returns that slot. */
+    int generateFill();
 
     std::array<TrackSettings, bf::kNumTracks>& getTrackSettings() noexcept { return trackSettings; }
 
@@ -110,6 +130,8 @@ private:
     static BusesProperties makeBuses();
     void timerCallback() override;
     void publishModel();
+    void pushUndoState();
+    bf::PatternGenerator::Options makeGeneratorOptions();
 
     bf::ParamCache paramCache;
     bf::EngineParams engineParams;
@@ -124,6 +146,8 @@ private:
     bf::SequencerSnapshot model;
     bf::TripleBuffer<bf::SequencerSnapshot> snapshot;
     std::array<TrackSettings, bf::kNumTracks> trackSettings;
+    std::vector<bf::PatternBank> undoStack, redoStack;
+    static constexpr size_t maxUndo = 64;
 
     bf::TrackOutputs trackOutputs;
     std::shared_ptr<bool> aliveFlag = std::make_shared<bool> (true);
