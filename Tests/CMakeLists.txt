@@ -10,7 +10,8 @@ list(TRANSFORM BREAKFORGE_CORE_SOURCES PREPEND "${PROJECT_SOURCE_DIR}/" OUTPUT_V
 
 target_sources(BreakForgeTests PRIVATE
     ${BREAKFORGE_TEST_CORE_SOURCES}
-    EngineTests.cpp)
+    EngineTests.cpp
+    SchedulerTests.cpp)
 
 target_include_directories(BreakForgeTests PRIVATE "${PROJECT_SOURCE_DIR}/Source")
 

@@ -57,7 +57,12 @@ juce_add_plugin(BreakForge
 set(BREAKFORGE_CORE_SOURCES
     Source/Core/DrumSynth.cpp
     Source/Core/Engine.cpp
-    Source/Core/Pattern.cpp)
+    Source/Core/GrooveEngine.cpp
+    Source/Core/Params.cpp
+    Source/Core/Pattern.cpp
+    Source/Core/Scheduler.cpp
+    Source/Core/StateIO.cpp
+    Source/Core/Voice.cpp)
 
 set(BREAKFORGE_PLUGIN_SOURCES
     Source/Plugin/PluginProcessor.cpp
