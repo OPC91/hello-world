@@ -12,6 +12,7 @@ target_sources(BreakForgeTests PRIVATE
     ${BREAKFORGE_TEST_CORE_SOURCES}
     EngineTests.cpp
     GrooveTests.cpp
+    SampleTests.cpp
     SchedulerTests.cpp)
 
 target_include_directories(BreakForgeTests PRIVATE "${PROJECT_SOURCE_DIR}/Source")

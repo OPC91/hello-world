@@ -4,6 +4,7 @@
 
 #include "Core/Engine.h"
 #include "Core/Params.h"
+#include "Core/SampleManager.h"
 #include "Core/TripleBuffer.h"
 
 /** Message-thread-only per-track settings that aren't automatable parameters. */
@@ -78,6 +79,10 @@ public:
     void setParameterValue (const juce::String& id, float plainValue);
     float getParameterValue (const juce::String& id) const;
 
+    // Samples ---------------------------------------------------------------
+    void loadSample (int track, const bf::SampleRef&);
+    bf::SampleManager& getSampleManager() noexcept { return sampleManager; }
+
     bf::Engine& getEngine() noexcept { return engine; }
     bf::SampleSlots& getSampleSlots() noexcept { return sampleSlots; }
 
@@ -90,12 +95,13 @@ private:
     static BusesProperties makeBuses();
     void timerCallback() override;
     void publishModel();
-    void installTemporarySamples (double sampleRate);
 
     bf::ParamCache paramCache;
     bf::EngineParams engineParams;
     bf::SampleSlots sampleSlots;
     bf::Engine engine { sampleSlots };
+    bf::SampleManager sampleManager;
+    std::atomic<double> pendingSampleRate { 0.0 };
 
     // The model is edited on the message thread, but hosts may save/restore state from other
     // threads, so writers serialise on this lock. The audio thread never takes it.
@@ -105,7 +111,7 @@ private:
     std::array<TrackSettings, bf::kNumTracks> trackSettings;
 
     bf::TrackOutputs trackOutputs;
-    double preparedSampleRate = 0.0;
+    std::shared_ptr<bool> aliveFlag = std::make_shared<bool> (true);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BreakForgeProcessor)
 };

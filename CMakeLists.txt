@@ -55,12 +55,15 @@ juce_add_plugin(BreakForge
 
 # Engine sources are shared between the plugin and the test runner.
 set(BREAKFORGE_CORE_SOURCES
+    Source/Core/AudioFileLoader.cpp
+    Source/Core/BuiltInKits.cpp
     Source/Core/DrumSynth.cpp
     Source/Core/Engine.cpp
     Source/Core/GrooveEngine.cpp
     Source/Core/Params.cpp
     Source/Core/Pattern.cpp
     Source/Core/PatternTools.cpp
+    Source/Core/SampleManager.cpp
     Source/Core/Scheduler.cpp
     Source/Core/StateIO.cpp
     Source/Core/UserLibrary.cpp

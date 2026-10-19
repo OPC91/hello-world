@@ -1,6 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
-#include "Core/DrumSynth.h"
+#include "Core/BuiltInKits.h"
 #include "Core/PatternTools.h"
 #include "Core/StateIO.h"
 #include "Core/UserLibrary.h"
@@ -9,7 +9,7 @@ namespace
 {
     const juce::Identifier idState ("BreakForgeState"), idVersion ("version"), idTracks ("Tracks"), idTrack ("Track"),
         idIndex ("i"), idName ("name"), idGenLock ("genLock"), idSampleLock ("sampleLock"), idMidiNote ("midiNote"),
-        idSeed ("seed"), idUserGroove ("UserGroove");
+        idSeed ("seed"), idUserGroove ("UserGroove"), idSample ("sample");
 }
 
 juce::AudioProcessor::BusesProperties BreakForgeProcessor::makeBuses()
@@ -25,10 +25,16 @@ juce::AudioProcessor::BusesProperties BreakForgeProcessor::makeBuses()
 BreakForgeProcessor::BreakForgeProcessor()
     : AudioProcessor (makeBuses()),
       apvts (*this, nullptr, "Params", bf::createParameterLayout()),
-      paramCache (apvts)
+      paramCache (apvts),
+      sampleManager (sampleSlots,
+                     [] (const juce::String& id, double rate) { return bf::BuiltInKits::render (id, rate); },
+                     [] (int track) { return bf::BuiltInKits::defaultFor (bf::kTrackDefaults[(size_t) track].role); })
 {
     for (int t = 0; t < bf::kNumTracks; ++t)
+    {
         trackSettings[(size_t) t].name = bf::kTrackDefaults[(size_t) t].name;
+        sampleManager.load (t, bf::BuiltInKits::defaultFor (bf::kTrackDefaults[(size_t) t].role));
+    }
 
     // Temporary default: a plain two-step so the sequencer is audible until the factory content lands.
     auto& p = model.bank.patterns[0];
@@ -36,7 +42,7 @@ BreakForgeProcessor::BreakForgeProcessor()
     for (int s : { 4, 12 }) p.tracks[1].steps[(size_t) s].on = true;
 
     publishModel();
-    startTimerHz (2);
+    startTimerHz (30);
 }
 
 BreakForgeProcessor::~BreakForgeProcessor()
@@ -67,17 +73,17 @@ void BreakForgeProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     engine.prepare (sampleRate, samplesPerBlock);
 
-    if (! juce::approximatelyEqual (sampleRate, preparedSampleRate))
-    {
-        preparedSampleRate = sampleRate;
-        installTemporarySamples (sampleRate);
-    }
+    // Samples are (re)built at the new rate in the background. Until they arrive the voices play
+    // the old buffers with rate compensation, so playback stays in tune.
+    if (juce::MessageManager::existsAndIsCurrentThread())
+        sampleManager.setSampleRate (sampleRate);
+    else
+        pendingSampleRate.store (sampleRate);
 }
 
-void BreakForgeProcessor::installTemporarySamples (double sampleRate)
+void BreakForgeProcessor::loadSample (int track, const bf::SampleRef& ref)
 {
-    auto kick = bf::DrumSynth::renderKick (sampleRate, {});
-    sampleSlots.set (0, new bf::SampleData (std::move (kick), sampleRate, "Synth Kick"));
+    sampleManager.load (track, ref);
 }
 
 void BreakForgeProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
@@ -215,6 +221,10 @@ void BreakForgeProcessor::addGhostNotes()
 
 void BreakForgeProcessor::timerCallback()
 {
+    if (const auto rate = pendingSampleRate.exchange (0.0); rate > 0.0)
+        sampleManager.setSampleRate (rate);
+
+    sampleManager.handleCompletedJobs();
     sampleSlots.collectGarbage();
 }
 
@@ -244,6 +254,7 @@ void BreakForgeProcessor::getStateInformation (juce::MemoryBlock& destData)
         tr.setProperty (idGenLock, ts.generatorLocked, nullptr);
         tr.setProperty (idSampleLock, ts.sampleLocked, nullptr);
         tr.setProperty (idMidiNote, model.midiNotes[(size_t) t], nullptr);
+        tr.setProperty (idSample, sampleManager.getRef (t).toString(), nullptr);
         tracks.appendChild (tr, nullptr);
     }
 
@@ -266,6 +277,7 @@ void BreakForgeProcessor::setStateInformation (const void* data, int sizeInBytes
         return;
 
     const juce::ScopedLock sl (modelLock);
+    std::array<bf::SampleRef, bf::kNumTracks> sampleRefsToLoad;
 
     if (auto params = state.getChildWithName (apvts.state.getType()); params.isValid())
         apvts.replaceState (params);
@@ -288,9 +300,26 @@ void BreakForgeProcessor::setStateInformation (const void* data, int sizeInBytes
         ts.generatorLocked = tr.getProperty (idGenLock, false);
         ts.sampleLocked = tr.getProperty (idSampleLock, false);
         model.midiNotes[(size_t) t] = juce::jlimit (0, 127, (int) tr.getProperty (idMidiNote, bf::kTrackDefaults[(size_t) t].midiNote));
+        sampleRefsToLoad[(size_t) t] = bf::SampleRef::fromString (tr.getProperty (idSample).toString());
     }
 
     publishModel();
+
+    // Sample loading belongs to the message thread; hosts may restore state from elsewhere.
+    const auto applySamples = [this, refs = sampleRefsToLoad] {
+        for (int t = 0; t < bf::kNumTracks; ++t)
+            if (! refs[(size_t) t].isEmpty() && refs[(size_t) t] != sampleManager.getRef (t))
+                sampleManager.load (t, refs[(size_t) t]);
+    };
+
+    if (juce::MessageManager::existsAndIsCurrentThread())
+        applySamples();
+    else
+        juce::MessageManager::callAsync ([applySamples, alive = std::weak_ptr<bool> (aliveFlag)] {
+            if (! alive.expired())
+                applySamples();
+        });
+
     modelChanged.sendChangeMessage();
 }
 
