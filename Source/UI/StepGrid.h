@@ -26,6 +26,8 @@ protected:
     void paintPlayhead (juce::Graphics&, float x0, float cellWidth);
     void paintBackground (juce::Graphics&, float cellWidth);
     void paintLaneFrame (juce::Graphics&);
+    void paintBeatDividers (juce::Graphics&, float cellWidth);
+    juce::Colour offCellColour (int step) const;
     void setVelocityFromLane (int step, int y);
     void audition (int track, int velocity);
     static int defaultVelocity (int track);

@@ -50,7 +50,7 @@ void PatternView::paintBackground (juce::Graphics& g, float cw)
     for (int s = 0; s < p.length; s += perBeat)
         if ((s / perBeat) % 2 == 1)
         {
-            g.setColour (juce::Colours::white.withAlpha (0.025f));
+            g.setColour (juce::Colours::white.withAlpha (0.05f));
             g.fillRect (juce::Rectangle<float> (s * cw, 0.0f, perBeat * cw, (float) getHeight()));
         }
 
@@ -58,6 +58,34 @@ void PatternView::paintBackground (juce::Graphics& g, float cw)
     const auto sel = layout.row (state.getSelectedTrack(), getWidth());
     g.setColour (Colours::track (state.getSelectedTrack()).withAlpha (0.06f));
     g.fillRect (sel);
+}
+
+void PatternView::paintBeatDividers (juce::Graphics& g, float cw)
+{
+    const auto& p = pattern();
+    const int perBeat = p.stepsPerBeat();
+    const int perBar = perBeat * 4;
+    const float h = (float) getHeight();
+
+    for (int s = perBeat; s < p.length; s += perBeat)
+    {
+        const float x = s * cw;
+        const bool bar = s % perBar == 0;
+
+        // A background-coloured gutter separates the beats, with a line down its middle.
+        g.setColour (Colours::panel);
+        g.fillRect (juce::Rectangle<float> (x - 2.0f, 0.0f, 4.0f, h));
+        g.setColour (bar ? Colours::accent.withAlpha (0.7f) : Colours::textDim.withAlpha (0.55f));
+        g.fillRect (juce::Rectangle<float> (x - (bar ? 1.0f : 0.5f), 0.0f, bar ? 2.0f : 1.0f, h));
+    }
+}
+
+juce::Colour PatternView::offCellColour (int step) const
+{
+    const int perBeat = pattern().stepsPerBeat();
+    const bool oddBeat = (step / perBeat) % 2 == 1;
+    const auto base = oddBeat ? Colours::cellOff.brighter (0.07f) : Colours::cellOff;
+    return step % perBeat == 0 ? base.brighter (0.08f) : base; // the beat itself stands out
 }
 
 void PatternView::paintLaneFrame (juce::Graphics& g)
@@ -122,8 +150,19 @@ void StepGrid::paint (juce::Graphics& g)
     for (int s = 0; s < p.length; ++s)
     {
         const auto cell = juce::Rectangle<float> (s * cw, accentRow.getY(), cw, accentRow.getHeight()).reduced (2.0f, 3.0f);
-        g.setColour (p.accents[(size_t) s] ? Colours::accent : (s % perBeat == 0 ? Colours::cellOffBeat : Colours::cellOff).withAlpha (0.6f));
+        g.setColour (p.accents[(size_t) s] ? Colours::accent : offCellColour (s).withAlpha (0.6f));
         g.fillRoundedRectangle (cell, 2.0f);
+
+        // Beat numbers (bar.beat once the pattern is longer than a bar).
+        if (s % perBeat == 0)
+        {
+            const int beat = s / perBeat;
+            const auto text = p.length > perBeat * 4 ? juce::String (beat / 4 + 1) + "." + juce::String (beat % 4 + 1)
+                                                     : juce::String (beat + 1);
+            g.setColour (p.accents[(size_t) s] ? juce::Colours::black : Colours::text.withAlpha (0.8f));
+            g.setFont (font (10.5f, true));
+            g.drawText (text, cell.withTrimmedLeft (3.0f), juce::Justification::centredLeft);
+        }
     }
 
     // Track rows.
@@ -138,7 +177,7 @@ void StepGrid::paint (juce::Graphics& g)
 
             if (! st.on)
             {
-                g.setColour (s % perBeat == 0 ? Colours::cellOffBeat : Colours::cellOff);
+                g.setColour (offCellColour (s));
                 g.fillRoundedRectangle (cell, 3.0f);
                 continue;
             }
@@ -208,6 +247,7 @@ void StepGrid::paint (juce::Graphics& g)
         g.fillRect (column.withHeight (2.0f).withY (column.getBottom() - h));
     }
 
+    paintBeatDividers (g, cw);
     paintPlayhead (g, 0.0f, cw);
 }
 
