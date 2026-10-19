@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 #include "Core/BuiltInKits.h"
 #include "Core/PatternTools.h"
+#include "Core/KitLibrary.h"
 #include "Core/StateIO.h"
 #include "Core/UserLibrary.h"
 
@@ -9,7 +10,7 @@ namespace
 {
     const juce::Identifier idState ("BreakForgeState"), idVersion ("version"), idTracks ("Tracks"), idTrack ("Track"),
         idIndex ("i"), idName ("name"), idGenLock ("genLock"), idSampleLock ("sampleLock"), idMidiNote ("midiNote"),
-        idSeed ("seed"), idUserGroove ("UserGroove"), idSample ("sample");
+        idSeed ("seed"), idUserGroove ("UserGroove"), idSample ("sample"), idKit ("kit");
 }
 
 juce::AudioProcessor::BusesProperties BreakForgeProcessor::makeBuses()
@@ -42,12 +43,16 @@ BreakForgeProcessor::BreakForgeProcessor()
     for (int s : { 4, 12 }) p.tracks[1].steps[(size_t) s].on = true;
 
     publishModel();
+    kits = bf::KitLibrary::scan ({}); // built-in kits now, user kits once the background scan finishes
+    rescanKits();
     startTimerHz (30);
 }
 
 BreakForgeProcessor::~BreakForgeProcessor()
 {
     stopTimer();
+    aliveFlag.reset();
+    backgroundPool.removeAllJobs (true, 10000);
 }
 
 bool BreakForgeProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -156,6 +161,86 @@ void BreakForgeProcessor::selectPattern (int index)
         p->setValueNotifyingHost (p->convertTo0to1 ((float) (index + 1)));
 }
 
+const bf::KitInfo* BreakForgeProcessor::findKit (const juce::String& name) const
+{
+    for (const auto& k : kits)
+        if (k.name == name)
+            return &k;
+
+    return nullptr;
+}
+
+void BreakForgeProcessor::selectKit (const juce::String& name)
+{
+    const auto* kit = findKit (name);
+
+    if (kit == nullptr)
+        return;
+
+    currentKit = name;
+
+    for (int t = 0; t < bf::kNumTracks; ++t)
+    {
+        if (trackSettings[(size_t) t].sampleLocked)
+            continue;
+
+        const auto list = kit->samplesFor (bf::kTrackDefaults[(size_t) t].role);
+
+        if (! list.isEmpty())
+            sampleManager.load (t, list[0]);
+    }
+
+    kitsChanged.sendChangeMessage();
+}
+
+void BreakForgeProcessor::randomizeSample (int track)
+{
+    const auto* kit = findKit (currentKit);
+
+    if (kit == nullptr || track < 0 || track >= bf::kNumTracks)
+        return;
+
+    const auto list = kit->samplesFor (bf::kTrackDefaults[(size_t) track].role);
+
+    if (list.isEmpty())
+        return;
+
+    // Choose a different sample than the current one when there is a choice.
+    const auto current = sampleManager.getRef (track);
+    juce::Array<bf::SampleRef> choices;
+
+    for (const auto& r : list)
+        if (r != current)
+            choices.add (r);
+
+    if (choices.isEmpty())
+        choices = list;
+
+    sampleManager.load (track, choices[random.nextInt (choices.size())]);
+}
+
+void BreakForgeProcessor::randomizeAllSamples()
+{
+    for (int t = 0; t < bf::kNumTracks; ++t)
+        if (! trackSettings[(size_t) t].sampleLocked)
+            randomizeSample (t);
+}
+
+void BreakForgeProcessor::rescanKits()
+{
+    backgroundPool.addJob ([folder = bf::UserLibrary::getKitsFolder(), alive = std::weak_ptr<bool> (aliveFlag), this] {
+        auto scanned = bf::KitLibrary::scan (folder);
+
+        juce::MessageManager::callAsync ([scanned = std::move (scanned), alive, this]() mutable {
+            if (alive.expired())
+                return;
+
+            kits = std::move (scanned);
+            kitsChanged.sendChangeMessage();
+        });
+    });
+}
+
 void BreakForgeProcessor::setParameterValue (const juce::String& id, float plainValue)
 {
     if (auto* p = apvts.getParameter (id))
@@ -236,6 +321,7 @@ void BreakForgeProcessor::getStateInformation (juce::MemoryBlock& destData)
     juce::ValueTree state (idState);
     state.setProperty (idVersion, 1, nullptr);
     state.setProperty (idSeed, (juce::int64) model.humanizeSeed, nullptr);
+    state.setProperty (idKit, currentKit, nullptr);
     state.appendChild (apvts.copyState(), nullptr);
     state.appendChild (bf::StateIO::bankToTree (model.bank), nullptr);
 
@@ -284,6 +370,7 @@ void BreakForgeProcessor::setStateInformation (const void* data, int sizeInBytes
 
     model.bank = bf::StateIO::bankFromTree (state.getChildWithName ("Patterns"));
     model.humanizeSeed = (std::uint32_t) (juce::int64) state.getProperty (idSeed, 1);
+    currentKit = state.getProperty (idKit, "Clean").toString();
 
     if (auto ug = state.getChildWithName (idUserGroove); ug.isValid() && ug.getNumChildren() > 0)
         model.userGroove = bf::StateIO::grooveFromTree (ug.getChild (0));

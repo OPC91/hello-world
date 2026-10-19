@@ -60,6 +60,7 @@ set(BREAKFORGE_CORE_SOURCES
     Source/Core/DrumSynth.cpp
     Source/Core/Engine.cpp
     Source/Core/GrooveEngine.cpp
+    Source/Core/KitLibrary.cpp
     Source/Core/Params.cpp
     Source/Core/Pattern.cpp
     Source/Core/PatternTools.cpp

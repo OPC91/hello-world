@@ -3,6 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "Core/Engine.h"
+#include "Core/KitLibrary.h"
 #include "Core/Params.h"
 #include "Core/SampleManager.h"
 #include "Core/TripleBuffer.h"
@@ -83,6 +84,20 @@ public:
     void loadSample (int track, const bf::SampleRef&);
     bf::SampleManager& getSampleManager() noexcept { return sampleManager; }
 
+    // Kits ------------------------------------------------------------------
+    const std::vector<bf::KitInfo>& getKits() const noexcept { return kits; }
+    const juce::String& getCurrentKit() const noexcept { return currentKit; }
+    /** Loads the kit's first sample for each track's role, skipping sample-locked tracks. */
+    void selectKit (const juce::String& name);
+    /** Picks a different sample of the current kit for the track's role. */
+    void randomizeSample (int track);
+    /** Randomizes every track whose sample isn't locked. */
+    void randomizeAllSamples();
+    /** Rescans the user Kits folder on a background thread. */
+    void rescanKits();
+    /** Broadcast when the kit list or the current kit changes. */
+    juce::ChangeBroadcaster kitsChanged;
+
     bf::Engine& getEngine() noexcept { return engine; }
     bf::SampleSlots& getSampleSlots() noexcept { return sampleSlots; }
 
@@ -112,6 +127,14 @@ private:
 
     bf::TrackOutputs trackOutputs;
     std::shared_ptr<bool> aliveFlag = std::make_shared<bool> (true);
+
+    const bf::KitInfo* findKit (const juce::String&) const;
+    std::vector<bf::KitInfo> kits;
+    juce::String currentKit { "Clean" };
+    juce::Random random;
+
+    /** Kit scans, pattern generation and export renders. Joined in the destructor. */
+    juce::ThreadPool backgroundPool { juce::ThreadPoolOptions{}.withThreadName ("BreakForge Worker").withNumberOfThreads (1) };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BreakForgeProcessor)
 };

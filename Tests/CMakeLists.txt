@@ -12,6 +12,7 @@ target_sources(BreakForgeTests PRIVATE
     ${BREAKFORGE_TEST_CORE_SOURCES}
     EngineTests.cpp
     GrooveTests.cpp
+    KitTests.cpp
     SampleTests.cpp
     SchedulerTests.cpp)
 
