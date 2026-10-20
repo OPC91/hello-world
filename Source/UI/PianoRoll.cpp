@@ -78,6 +78,9 @@ void PianoRoll::paint (juce::Graphics& g)
             g.setColour (Colours::track (t));
             g.drawRoundedRectangle (b, 3.0f, 1.0f);
 
+            if (st.sample > 0)
+                paintHitSampleMarker (g, b);
+
             if (st.ratchet > 1)
             {
                 g.setColour (juce::Colours::black.withAlpha (0.5f));
@@ -114,6 +117,7 @@ void PianoRoll::paint (juce::Graphics& g)
         g.fillEllipse (x - 3.5f, y - 3.5f, 7.0f, 7.0f);
     }
 
+    paintDropTarget (g, cw);
     paintPlayhead (g, 0.0f, cw);
 }
 

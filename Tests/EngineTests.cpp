@@ -181,6 +181,31 @@ TEST_CASE ("Choke group cuts the open hat when the closed hat plays", "[engine]"
     REQUIRE (std::abs (audio[chokeAt + 2000]) < 0.001f);
 }
 
+TEST_CASE ("A hit can play its own sample, falling back to the track sample", "[engine][samples]")
+{
+    Rig rig (48000.0);
+
+    // Track 0: full-scale click. Variant 1: half-scale click. Variant 2: never loaded.
+    juce::AudioBuffer<float> half (1, 64);
+    half.clear();
+    half.setSample (0, 0, 0.5f);
+    rig.slots.set (0, new bf::SampleData (std::move (half), 48000.0, "half"), 1);
+
+    auto& p = rig.snap.bank.patterns[0];
+    for (int s : { 4, 8, 12 })
+        p.tracks[0].steps[(size_t) s].on = true;
+    p.tracks[0].steps[8].sample = 1;
+    p.tracks[0].steps[12].sample = 2;
+
+    const double bpm = 174.0, spp = rig.sr * 60.0 / bpm;
+    const auto audio = rig.run ((juce::int64) (spp * 4.0), [] { return 256; }, bpm);
+    const auto at = [&] (int step) { return audio[(size_t) std::lround (step * 0.25 * spp)]; };
+
+    REQUIRE (std::abs (at (4) - 1.0f) < 1.0e-3f);   // track sample
+    REQUIRE (std::abs (at (8) - 0.5f) < 1.0e-3f);   // its own sample
+    REQUIRE (std::abs (at (12) - 1.0f) < 1.0e-3f);  // empty per-hit slot -> track sample
+}
+
 TEST_CASE ("Pattern bank survives serialisation", "[state]")
 {
     bf::PatternBank bank;
@@ -196,6 +221,7 @@ TEST_CASE ("Pattern bank survives serialisation", "[state]")
     s.nudge = -0.25f;
     s.pitch = -7;
     s.length = 2.5f;
+    s.sample = 7;
     bank.patterns[0].tracks[0].steps[0].on = true;
 
     const auto restored = bf::StateIO::bankFromTree (bf::StateIO::bankToTree (bank));

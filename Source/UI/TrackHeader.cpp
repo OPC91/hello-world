@@ -203,6 +203,32 @@ void TrackHeader::refresh()
     repaint();
 }
 
+bool TrackHeader::isInterestedInFileDrag (const juce::StringArray& files)
+{
+    for (const auto& f : files)
+        if (isSupportedAudioFile (juce::File (f)))
+            return true;
+
+    return false;
+}
+
+void TrackHeader::filesDropped (const juce::StringArray& files, int, int)
+{
+    dragOver = false;
+
+    for (const auto& f : files)
+    {
+        if (isSupportedAudioFile (juce::File (f)))
+        {
+            state.processor.loadSample (track, SampleRef::fromFile (juce::File (f)));
+            break;
+        }
+    }
+
+    state.setSelectedTrack (track);
+    refresh();
+}
+
 void TrackHeader::decay()
 {
     if (activity > 0.0f)
@@ -225,6 +251,12 @@ void TrackHeader::paint (juce::Graphics& g)
 
     g.setColour (Colours::outline.withAlpha (0.6f));
     g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
+
+    if (dragOver)
+    {
+        g.setColour (Colours::accent);
+        g.drawRect (getLocalBounds(), 2);
+    }
 }
 
 void TrackHeader::resized()

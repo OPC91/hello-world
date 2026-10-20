@@ -80,7 +80,8 @@ RenderResult render (const RenderRequest& req)
 
     SampleSlots slots;
     for (int t = 0; t < kNumTracks; ++t)
-        slots.set (t, req.samples[(size_t) t]);
+        for (int v = 0; v < kSampleVariants; ++v)
+            slots.set (t, req.samples[(size_t) (t * kSampleVariants + v)], v);
 
     Engine engine (slots);
     engine.prepare (req.sampleRate, block);

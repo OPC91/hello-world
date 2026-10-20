@@ -34,8 +34,9 @@ private:
     std::unique_ptr<juce::FileChooser> chooser;
 };
 
-/** Left-hand controls for one track row. */
-class TrackHeader final : public juce::Component
+/** Left-hand controls for one track row. Dropping a file anywhere on it sets the track's sample. */
+class TrackHeader final : public juce::Component,
+                          public juce::FileDragAndDropTarget
 {
 public:
     TrackHeader (EditorState&, int track);
@@ -43,6 +44,11 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
+
+    bool isInterestedInFileDrag (const juce::StringArray&) override;
+    void fileDragEnter (const juce::StringArray&, int, int) override { dragOver = true; repaint(); }
+    void fileDragExit (const juce::StringArray&) override { dragOver = false; repaint(); }
+    void filesDropped (const juce::StringArray&, int, int) override;
 
     void refresh();
     void flash() { activity = 1.0f; repaint(); }
@@ -58,6 +64,7 @@ private:
     std::unique_ptr<ButtonAttachment> muteAttachment, soloAttachment;
     SampleSlot sample;
     float activity = 0.0f;
+    bool dragOver = false;
 };
 
 } // namespace bf::ui

@@ -21,7 +21,8 @@ namespace bf::Exporter
     {
         SequencerSnapshot snapshot;
         EngineParams params;
-        std::array<SampleData::Ptr, kNumTracks> samples;
+        /** Indexed track * kSampleVariants + variant (variant 0 = the track's own sample). */
+        std::array<SampleData::Ptr, kNumSampleSlots> samples;
         int pattern = 0;
         double sampleRate = 48000.0;
         double bpm = 174.0;

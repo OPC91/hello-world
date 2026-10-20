@@ -22,51 +22,55 @@ void SampleManager::setSampleRate (double newRate)
     sampleRate = newRate;
 
     for (int t = 0; t < kNumTracks; ++t)
-        if (! refs[(size_t) t].isEmpty())
-            startJob (t, refs[(size_t) t], false);
+        for (int v = 0; v < kSampleVariants; ++v)
+            if (! refs[slot (t, v)].isEmpty())
+                startJob (t, v, refs[slot (t, v)], false);
 }
 
-void SampleManager::load (int track, const SampleRef& ref)
+void SampleManager::load (int track, const SampleRef& ref, int variant)
 {
-    if (track < 0 || track >= kNumTracks)
+    if (track < 0 || track >= kNumTracks || variant < 0 || variant >= kSampleVariants)
         return;
 
-    refs[(size_t) track] = ref;
-    warnings[(size_t) track].clear();
+    const auto i = slot (track, variant);
+    refs[i] = ref;
+    warnings[i].clear();
 
     if (ref.isEmpty())
     {
-        ++generation[(size_t) track];
-        slots.set (track, nullptr);
+        ++generation[i];
+        slots.set (track, nullptr, variant);
         sendChangeMessage();
         return;
     }
 
     if (sampleRate > 0.0)
-        startJob (track, ref, false);
+        startJob (track, variant, ref, false);
 
     sendChangeMessage();
 }
 
-void SampleManager::startJob (int track, const SampleRef& ref, bool isFallback)
+void SampleManager::startJob (int track, int variant, const SampleRef& ref, bool isFallback)
 {
-    // A newer request supersedes anything still in flight for this track, except that a
+    // A newer request supersedes anything still in flight for this slot, except that a
     // fallback keeps the generation of the request it is standing in for.
-    const auto gen = isFallback ? generation[(size_t) track] : ++generation[(size_t) track];
+    const auto i = slot (track, variant);
+    const auto gen = isFallback ? generation[i] : ++generation[i];
     const double rate = sampleRate;
-    ++pending[(size_t) track];
+    ++pending[i];
 
-    pool.addJob ([this, track, gen, ref, rate] {
-        auto result = runJob (track, gen, ref, rate);
+    pool.addJob ([this, track, variant, gen, ref, rate] {
+        auto result = runJob (track, variant, gen, ref, rate);
         const juce::ScopedLock sl (resultLock);
         results.push_back (std::move (result));
     });
 }
 
-SampleManager::Result SampleManager::runJob (int track, std::uint32_t gen, SampleRef ref, double rate) const
+SampleManager::Result SampleManager::runJob (int track, int variant, std::uint32_t gen, SampleRef ref, double rate) const
 {
     Result r;
     r.track = track;
+    r.variant = variant;
     r.generation = gen;
     r.loadedRef = ref;
 
@@ -103,27 +107,28 @@ void SampleManager::handleCompletedJobs()
 
     for (auto& r : done)
     {
-        const auto t = (size_t) r.track;
-        pending[t] = juce::jmax (0, pending[t] - 1);
+        const auto i = slot (r.track, r.variant);
+        pending[i] = juce::jmax (0, pending[i] - 1);
         changed = true;
 
-        if (r.generation != generation[t])
+        if (r.generation != generation[i])
             continue; // superseded by a newer request
 
         if (r.data != nullptr)
         {
-            slots.set (r.track, r.data);
+            slots.set (r.track, r.data, r.variant);
             continue;
         }
 
-        // Failed: warn, and fall back to a built-in sound so the track still plays.
-        warnings[t] = r.error;
-        const auto fallback = fallbackFor != nullptr ? fallbackFor (r.track) : SampleRef();
+        // Failed: warn. A track falls back to a built-in sound so it still plays; an empty per-hit
+        // slot makes its hits use the track's sample instead.
+        warnings[i] = r.error;
+        const auto fallback = r.variant == 0 && fallbackFor != nullptr ? fallbackFor (r.track) : SampleRef();
 
         if (! r.loadedRef.isBuiltIn() && fallback.isBuiltIn())
-            startJob (r.track, fallback, true);
+            startJob (r.track, 0, fallback, true);
         else
-            slots.set (r.track, nullptr);
+            slots.set (r.track, nullptr, r.variant);
     }
 
     if (changed)

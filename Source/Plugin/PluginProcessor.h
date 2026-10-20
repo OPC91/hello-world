@@ -107,6 +107,15 @@ public:
 
     // Samples ---------------------------------------------------------------
     void loadSample (int track, const bf::SampleRef&);
+
+    /** Makes one step of the edit pattern play its own sample (turning the step on). Reuses a
+        per-hit slot that already holds the file. Returns the variant used, or -1 if all 15
+        per-hit slots of the track are taken by other hits. */
+    int assignHitSample (int track, int step, const bf::SampleRef&);
+    /** Makes a step play the track's sample again. */
+    void clearHitSample (int track, int step);
+    /** True if any step of any pattern uses this per-hit sample variant. */
+    bool isHitSampleUsed (int track, int variant) const;
     bf::SampleManager& getSampleManager() noexcept { return sampleManager; }
 
     // Export ----------------------------------------------------------------

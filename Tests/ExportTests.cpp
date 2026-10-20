@@ -131,7 +131,7 @@ TEST_CASE ("Rendered loops carry the previous loop's tail and stems sum to the m
     juce::AudioBuffer<float> ring (1, 44100);
     for (int i = 0; i < ring.getNumSamples(); ++i)
         ring.setSample (0, i, 0.3f * (float) std::sin (i * 0.05));
-    req.samples[4] = new bf::SampleData (std::move (ring), 44100.0, "ring");
+    req.samples[4 * bf::kSampleVariants] = new bf::SampleData (std::move (ring), 44100.0, "ring");
     req.samples[0] = bftest::makeClick (req.sampleRate);
 
     auto& p = req.snapshot.bank.patterns[0];
@@ -156,6 +156,31 @@ TEST_CASE ("Rendered loops carry the previous loop's tail and stems sum to the m
     for (int ch = 0; ch < 2; ++ch)
         for (int i = 0; i < sum.getNumSamples(); i += 7)
             REQUIRE_THAT (sum.getSample (ch, i), WithinAbs (result.mix.getSample (ch, i), 1e-5));
+}
+
+TEST_CASE ("Offline renders use per-hit samples", "[export][render][samples]")
+{
+    bf::Exporter::RenderRequest req;
+    req.sampleRate = 48000.0;
+    req.bpm = 174.0;
+    req.bars = 1;
+    req.params = bftest::neutralParams();
+    req.applyMaster = false;
+
+    juce::AudioBuffer<float> quarter (1, 64);
+    quarter.clear();
+    quarter.setSample (0, 0, 0.25f);
+    req.samples[0] = bftest::makeClick (req.sampleRate);
+    req.samples[3] = new bf::SampleData (std::move (quarter), 48000.0, "quarter"); // track 0, variant 3
+
+    auto& p = req.snapshot.bank.patterns[0];
+    p.tracks[0].steps[4].on = p.tracks[0].steps[8].on = true;
+    p.tracks[0].steps[8].sample = 3;
+
+    const auto result = bf::Exporter::render (req);
+    const double spp = req.sampleRate * 60.0 / req.bpm;
+    REQUIRE (std::abs (result.mix.getSample (0, (int) std::lround (1.0 * spp)) - 1.0f) < 1.0e-3f);
+    REQUIRE (std::abs (result.mix.getSample (0, (int) std::lround (2.0 * spp)) - 0.25f) < 1.0e-3f);
 }
 
 TEST_CASE ("Limiter never exceeds its ceiling and is transparent below it", "[master][limiter]")

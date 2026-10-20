@@ -120,6 +120,81 @@ TEST_CASE ("Full plugin state survives save and restore", "[state][plugin]")
     tmp.deleteRecursively();
 }
 
+TEST_CASE ("Dropped samples go to individual hits and survive save and restore", "[plugin][samples]")
+{
+    juce::ScopedJuceInitialiser_GUI juceInit;
+    const auto tmp = juce::File::createTempFile ("bf_hits");
+    tmp.createDirectory();
+
+    const auto makeFile = [&] (const juce::String& name, float level) {
+        juce::AudioBuffer<float> b (1, 64);
+        b.clear();
+        b.setSample (0, 0, level);
+        const auto f = tmp.getChildFile (name);
+        REQUIRE (bf::Exporter::writeWav (f, b, 48000.0));
+        return bf::SampleRef::fromFile (f);
+    };
+
+    const auto snareA = makeFile ("snare a.wav", 0.5f);
+    const auto snareB = makeFile ("snare b.wav", 0.25f);
+    juce::MemoryBlock saved;
+
+    {
+        BreakForgeProcessor p;
+        p.prepareToPlay (48000.0, 256);
+        p.selectPattern (6); // an empty slot
+
+        // First file gets slot 1, the same file is reused, a different file gets slot 2.
+        REQUIRE (p.assignHitSample (1, 3, snareA) == 1);
+        REQUIRE (p.assignHitSample (1, 9, snareA) == 1);
+        REQUIRE (p.assignHitSample (1, 11, snareB) == 2);
+        REQUIRE (p.getSampleManager().waitAndApply (10000));
+
+        const auto& steps = p.getModel().bank.patterns[6].tracks[1].steps;
+        REQUIRE (steps[3].on);                 // dropping on an empty step turns it on
+        REQUIRE (steps[3].sample == 1);
+        REQUIRE (steps[9].sample == 1);
+        REQUIRE (steps[11].sample == 2);
+        REQUIRE (p.getSampleSlots().get (1, 1)->name == "snare a");
+        REQUIRE (p.getSampleSlots().get (1, 2)->name == "snare b");
+        REQUIRE (p.isHitSampleUsed (1, 2));
+
+        // Dropping the track's own sample just points the hit back at it.
+        REQUIRE (p.assignHitSample (1, 5, p.getSampleManager().getRef (1)) == 0);
+
+        // Back to the track sound.
+        p.clearHitSample (1, 9);
+        REQUIRE (p.getModel().bank.patterns[6].tracks[1].steps[9].sample == 0);
+
+        // 15 distinct samples fill every per-hit slot; a 16th distinct one is refused.
+        for (int i = 0; i < 13; ++i)
+            REQUIRE (p.assignHitSample (2, i, makeFile ("ghost " + juce::String (i) + ".wav", 0.1f)) > 0);
+        REQUIRE (p.assignHitSample (2, 13, makeFile ("ghost 13.wav", 0.1f)) > 0);
+        REQUIRE (p.assignHitSample (2, 14, makeFile ("ghost 14.wav", 0.1f)) > 0);
+        REQUIRE (p.assignHitSample (2, 15, makeFile ("ghost 15.wav", 0.1f)) == -1);
+        // ...until a hit is reset, which frees its slot for reuse.
+        p.clearHitSample (2, 0);
+        REQUIRE (p.assignHitSample (2, 15, makeFile ("ghost 15.wav", 0.1f)) > 0);
+
+        REQUIRE (p.getSampleManager().waitAndApply (10000));
+        p.getStateInformation (saved);
+    }
+
+    BreakForgeProcessor q;
+    q.prepareToPlay (48000.0, 256);
+    q.setStateInformation (saved.getData(), (int) saved.getSize());
+    juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
+    REQUIRE (q.getSampleManager().waitAndApply (10000));
+
+    REQUIRE (q.getModel().bank.patterns[6].tracks[1].steps[11].sample == 2);
+    REQUIRE (q.getSampleManager().getRef (1, 1) == snareA);
+    REQUIRE (q.getSampleManager().getRef (1, 2) == snareB);
+    REQUIRE (q.getSampleSlots().get (1, 2) != nullptr);
+    REQUIRE (q.getSampleSlots().get (1, 2)->name == "snare b");
+
+    tmp.deleteRecursively();
+}
+
 TEST_CASE ("Processor plays the factory pattern in sync with the host and reports latency", "[plugin]")
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
@@ -165,5 +240,65 @@ TEST_CASE ("Editor opens, resizes and closes", "[plugin][ui]")
     }
 
     pump (100);
+    editor.reset();
+}
+
+// Hidden: `BreakForgeTests "[.uidrop]"` with BF_SHOT_DIR set drives a file drop through the real
+// editor and saves before/after screenshots.
+TEST_CASE ("Drop samples onto steps through the editor", "[.uidrop]")
+{
+    juce::ScopedJuceInitialiser_GUI juceInit;
+    const juce::File dir (juce::SystemStats::getEnvironmentVariable ("BF_SHOT_DIR", {}));
+    REQUIRE (dir.isDirectory());
+
+    juce::StringArray files;
+    for (int i = 1; i <= 3; ++i)
+    {
+        juce::AudioBuffer<float> b (1, 64);
+        b.clear();
+        b.setSample (0, 0, 0.5f);
+        const auto f = dir.getChildFile ("amen slice " + juce::String (i) + ".wav");
+        REQUIRE (bf::Exporter::writeWav (f, b, 48000.0));
+        files.add (f.getFullPathName());
+    }
+
+    BreakForgeProcessor p;
+    p.prepareToPlay (48000.0, 256);
+    std::unique_ptr<juce::AudioProcessorEditor> editor (p.createEditor());
+    editor->setSize (1400, 820);
+
+    // Find the step grid and drop on the snare row, step 5.
+    bf::ui::StepGrid* grid = nullptr;
+    for (auto* c : editor->getChildren())
+        if (auto* g = dynamic_cast<bf::ui::StepGrid*> (c))
+            grid = g;
+    REQUIRE (grid != nullptr);
+
+    const auto layout = bf::ui::RowLayout::fit (grid->getHeight(), 0);
+    const int y = layout.row (1, grid->getWidth()).getCentreY();
+    const int x = (int) (grid->getWidth() * 4.5f / 16.0f);
+
+    REQUIRE (grid->isInterestedInFileDrag (files));
+    grid->fileDragEnter (files, x, y);
+    editor->createComponentSnapshot (editor->getLocalBounds()).convertedToFormat (juce::Image::RGB);
+    {
+        juce::FileOutputStream out (dir.getChildFile ("drop_hover.png"));
+        out.setPosition (0); out.truncate();
+        juce::PNGImageFormat().writeImageToStream (editor->createComponentSnapshot (editor->getLocalBounds()), out);
+    }
+
+    grid->filesDropped (files, x, y);
+    REQUIRE (p.getSampleManager().waitAndApply (10000));
+    juce::MessageManager::getInstance()->runDispatchLoopUntil (100);
+
+    const auto& snare = p.getModel().bank.patterns[0].tracks[1].steps;
+    REQUIRE (snare[4].sample > 0);
+    REQUIRE (snare[5].sample > 0);
+    REQUIRE (snare[6].sample > 0);
+    REQUIRE (snare[4].sample != snare[5].sample);
+
+    juce::FileOutputStream out (dir.getChildFile ("drop_after.png"));
+    out.setPosition (0); out.truncate();
+    juce::PNGImageFormat().writeImageToStream (editor->createComponentSnapshot (editor->getLocalBounds()), out);
     editor.reset();
 }

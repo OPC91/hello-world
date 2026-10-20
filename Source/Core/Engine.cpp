@@ -276,7 +276,13 @@ void Engine::triggerHit (const HitEvent& e, int offset, const EngineParams& para
                 for (auto& v : voices[(size_t) other])
                     v.choke (offset);
 
-    if (auto* sample = slots.acquire (track))
+    // A per-hit sample that isn't loaded (yet, or failed) falls back to the track's sample.
+    auto* sample = e.sample > 0 ? slots.acquire (track, e.sample) : nullptr;
+
+    if (sample == nullptr)
+        sample = slots.acquire (track);
+
+    if (sample != nullptr)
     {
         auto& pool = voices[(size_t) track];
         Voice* target = &pool[0];

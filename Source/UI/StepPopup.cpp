@@ -1,5 +1,6 @@
 #include "StepPopup.h"
 #include "Theme.h"
+#include "Core/AudioFileLoader.h"
 #include "Plugin/PluginProcessor.h"
 
 namespace bf::ui
@@ -27,7 +28,43 @@ StepPopup::StepPopup (EditorState& s, int t, int st, std::function<void()> chang
     };
     addAndMakeVisible (clearButton);
 
-    setSize (300, (int) rows.size() * 28 + 46);
+    // Which sample this hit plays: the track's, or its own (drop a file on the step, or load one).
+    sampleLabel.setText ("Sample", juce::dontSendNotification);
+    sampleLabel.setFont (font (13.0f));
+    sampleLabel.setColour (juce::Label::textColourId, Colours::textDim);
+    sampleName.setFont (font (12.5f));
+    sampleName.setMinimumHorizontalScale (0.7f);
+
+    loadSample.setTooltip ("Give this hit its own sample (you can also drop a file onto the step)");
+    loadSample.onClick = [this] {
+        chooser = std::make_unique<juce::FileChooser> ("Sample for this hit", juce::File::getSpecialLocation (juce::File::userMusicDirectory),
+                                                       supportedAudioWildcard());
+        chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                              [safe = juce::Component::SafePointer<StepPopup> (this)] (const juce::FileChooser& fc) {
+                                  if (safe == nullptr || ! fc.getResult().existsAsFile())
+                                      return;
+
+                                  if (safe->state.processor.assignHitSample (safe->track, safe->step, SampleRef::fromFile (fc.getResult())) < 0
+                                      && safe->state.showStatus)
+                                      safe->state.showStatus ("This track already uses 15 different per-hit samples");
+
+                                  safe->refreshSample();
+                                  if (safe->onChange) safe->onChange();
+                              });
+    };
+
+    useTrackSample.setTooltip ("Play the track's sample on this hit again");
+    useTrackSample.onClick = [this] {
+        state.processor.clearHitSample (track, step);
+        refreshSample();
+        if (onChange) onChange();
+    };
+
+    for (auto* c : std::initializer_list<juce::Component*> { &sampleLabel, &sampleName, &loadSample, &useTrackSample })
+        addAndMakeVisible (c);
+
+    refreshSample();
+    setSize (300, (int) rows.size() * 28 + 46 + 30);
 }
 
 void StepPopup::addRow (const juce::String& name, double min, double max, double interval, double value,
@@ -59,6 +96,30 @@ void StepPopup::addRow (const juce::String& name, double min, double max, double
     rows.push_back (std::move (row));
 }
 
+void StepPopup::refreshSample()
+{
+    const auto& st = state.processor.getModel().bank.patterns[(size_t) state.processor.getEditPattern()]
+                         .tracks[(size_t) track].steps[(size_t) step];
+    const auto& mgr = state.processor.getSampleManager();
+
+    if (st.sample > 0)
+    {
+        const bool missing = mgr.hasWarning (track, st.sample);
+        sampleName.setText (mgr.getRef (track, st.sample).getDisplayName() + (missing ? " (missing)" : ""), juce::dontSendNotification);
+        sampleName.setColour (juce::Label::textColourId, missing ? Colours::warning : Colours::text);
+        sampleName.setTooltip (missing ? mgr.getWarning (track, st.sample) + "\nThis hit plays the track's sample instead."
+                                       : mgr.getRef (track, st.sample).file.getFullPathName());
+    }
+    else
+    {
+        sampleName.setText ("Track: " + mgr.getRef (track).getDisplayName(), juce::dontSendNotification);
+        sampleName.setColour (juce::Label::textColourId, Colours::textDim);
+        sampleName.setTooltip ({});
+    }
+
+    useTrackSample.setEnabled (st.sample > 0);
+}
+
 void StepPopup::paint (juce::Graphics& g)
 {
     g.setColour (Colours::text);
@@ -78,6 +139,13 @@ void StepPopup::resized()
         row->label.setBounds (line.removeFromLeft (80));
         row->slider.setBounds (line);
     }
+
+    auto sampleRow = r.removeFromTop (28).reduced (0, 3);
+    sampleLabel.setBounds (sampleRow.removeFromLeft (80));
+    useTrackSample.setBounds (sampleRow.removeFromRight (64));
+    sampleRow.removeFromRight (2);
+    loadSample.setBounds (sampleRow.removeFromRight (54));
+    sampleName.setBounds (sampleRow);
 
     clearButton.setBounds (r.removeFromBottom (22).removeFromRight (100));
 }

@@ -7,7 +7,7 @@ namespace
 {
     const juce::Identifier idPattern ("Pattern"), idBank ("Patterns"), idTrack ("Track"), idStep ("S"),
         idGroove ("Groove"), idIndex ("i"), idLength ("length"), idResolution ("res"), idAccents ("accents"),
-        idOn ("on"), idVel ("v"), idProb ("p"), idRatchet ("r"), idNudge ("n"), idPitch ("pt"), idGate ("g"),
+        idOn ("on"), idVel ("v"), idProb ("p"), idRatchet ("r"), idNudge ("n"), idPitch ("pt"), idGate ("g"), idSample ("smp"),
         idSwing ("swing"), idTiming ("timing"), idVelocity ("velocity");
 
     juce::String floatsToString (const float* values, int num)
@@ -63,6 +63,7 @@ juce::ValueTree patternToTree (const Pattern& p)
             if (! juce::exactlyEqual (step.nudge, 0.0f))    st.setProperty (idNudge, step.nudge, nullptr);
             if (step.pitch != 0)         st.setProperty (idPitch, (int) step.pitch, nullptr);
             if (! juce::exactlyEqual (step.length, 1.0f))     st.setProperty (idGate, step.length, nullptr);
+            if (step.sample != 0)                             st.setProperty (idSample, (int) step.sample, nullptr);
             track.appendChild (st, nullptr);
         }
 
@@ -110,6 +111,7 @@ Pattern patternFromTree (const juce::ValueTree& tree)
             step.nudge = juce::jlimit (-0.5f, 0.5f, (float) st.getProperty (idNudge, 0.0f));
             step.pitch = (std::int8_t) juce::jlimit (-12, 12, (int) st.getProperty (idPitch, 0));
             step.length = juce::jlimit (0.1f, 16.0f, (float) st.getProperty (idGate, 1.0f));
+            step.sample = (std::uint8_t) juce::jlimit (0, kSampleVariants - 1, (int) st.getProperty (idSample, 0));
         }
     }
 

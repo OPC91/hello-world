@@ -11,7 +11,7 @@ namespace
 {
     const juce::Identifier idState ("BreakForgeState"), idVersion ("version"), idTracks ("Tracks"), idTrack ("Track"),
         idIndex ("i"), idName ("name"), idGenLock ("genLock"), idSampleLock ("sampleLock"), idMidiNote ("midiNote"),
-        idSeed ("seed"), idUserGroove ("UserGroove"), idSample ("sample"), idKit ("kit");
+        idSeed ("seed"), idUserGroove ("UserGroove"), idSample ("sample"), idKit ("kit"), idHitSample ("HitSample"), idVariant ("v");
 }
 
 juce::AudioProcessor::BusesProperties BreakForgeProcessor::makeBuses()
@@ -93,6 +93,67 @@ void BreakForgeProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 void BreakForgeProcessor::loadSample (int track, const bf::SampleRef& ref)
 {
     sampleManager.load (track, ref);
+}
+
+bool BreakForgeProcessor::isHitSampleUsed (int track, int variant) const
+{
+    for (const auto& p : model.bank.patterns)
+        for (int s = 0; s < p.length; ++s)
+            if (p.tracks[(size_t) track].steps[(size_t) s].sample == variant)
+                return true;
+
+    return false;
+}
+
+int BreakForgeProcessor::assignHitSample (int track, int step, const bf::SampleRef& ref)
+{
+    if (track < 0 || track >= bf::kNumTracks || ref.isEmpty())
+        return -1;
+
+    const int slot = getEditPattern();
+
+    if (step < 0 || step >= model.bank.patterns[(size_t) slot].length)
+        return -1;
+
+    // The track's own sample needs no extra slot.
+    int variant = ref == sampleManager.getRef (track) ? 0 : -1;
+
+    // Reuse a slot already holding this file, then an empty one, then one no step uses any more.
+    for (int v = 1; v < bf::kSampleVariants && variant < 0; ++v)
+        if (sampleManager.getRef (track, v) == ref)
+            variant = v;
+
+    for (int v = 1; v < bf::kSampleVariants && variant < 0; ++v)
+        if (sampleManager.getRef (track, v).isEmpty())
+            variant = v;
+
+    for (int v = 1; v < bf::kSampleVariants && variant < 0; ++v)
+        if (! isHitSampleUsed (track, v))
+            variant = v;
+
+    if (variant < 0)
+        return -1; // every per-hit slot of this track is in use
+
+    if (variant > 0 && sampleManager.getRef (track, variant) != ref)
+        sampleManager.load (track, ref, variant);
+
+    editModel ([&] (bf::SequencerSnapshot& m) {
+        auto& st = m.bank.patterns[(size_t) slot].tracks[(size_t) track].steps[(size_t) step];
+        if (! st.on && st == bf::Step {})
+            st.velocity = (std::uint8_t) (track == bf::trackForRole (bf::Role::GhostSnare) ? 40 : 100);
+        st.on = true;
+        st.sample = (std::uint8_t) variant;
+    });
+
+    return variant;
+}
+
+void BreakForgeProcessor::clearHitSample (int track, int step)
+{
+    const int slot = getEditPattern();
+    editModel ([&] (bf::SequencerSnapshot& m) {
+        m.bank.patterns[(size_t) slot].tracks[(size_t) track].steps[(size_t) step].sample = 0;
+    });
 }
 
 void BreakForgeProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
@@ -383,7 +444,8 @@ void BreakForgeProcessor::exportPattern (ExportKind kind, int bars, std::functio
     req.renderStems = kind == ExportKind::AudioStems;
 
     for (int t = 0; t < bf::kNumTracks; ++t)
-        req.samples[(size_t) t] = sampleSlots.get (t);
+        for (int v = 0; v < bf::kSampleVariants; ++v)
+            req.samples[(size_t) (t * bf::kSampleVariants + v)] = sampleSlots.get (t, v);
 
     juce::StringArray trackNames;
     for (const auto& ts : trackSettings)
@@ -561,6 +623,17 @@ void BreakForgeProcessor::getStateInformation (juce::MemoryBlock& destData)
         tr.setProperty (idSampleLock, ts.sampleLocked, nullptr);
         tr.setProperty (idMidiNote, model.midiNotes[(size_t) t], nullptr);
         tr.setProperty (idSample, sampleManager.getRef (t).toString(), nullptr);
+
+        for (int v = 1; v < bf::kSampleVariants; ++v)
+        {
+            if (const auto& ref = sampleManager.getRef (t, v); ! ref.isEmpty())
+            {
+                juce::ValueTree hit (idHitSample);
+                hit.setProperty (idVariant, v, nullptr);
+                hit.setProperty (idSample, ref.toString(), nullptr);
+                tr.appendChild (hit, nullptr);
+            }
+        }
         tracks.appendChild (tr, nullptr);
     }
 
@@ -583,7 +656,7 @@ void BreakForgeProcessor::setStateInformation (const void* data, int sizeInBytes
         return;
 
     const juce::ScopedLock sl (modelLock);
-    std::array<bf::SampleRef, bf::kNumTracks> sampleRefsToLoad;
+    std::array<std::array<bf::SampleRef, bf::kSampleVariants>, bf::kNumTracks> sampleRefsToLoad;
 
     if (auto params = state.getChildWithName (apvts.state.getType()); params.isValid())
         apvts.replaceState (params);
@@ -607,7 +680,15 @@ void BreakForgeProcessor::setStateInformation (const void* data, int sizeInBytes
         ts.generatorLocked = tr.getProperty (idGenLock, false);
         ts.sampleLocked = tr.getProperty (idSampleLock, false);
         model.midiNotes[(size_t) t] = juce::jlimit (0, 127, (int) tr.getProperty (idMidiNote, bf::kTrackDefaults[(size_t) t].midiNote));
-        sampleRefsToLoad[(size_t) t] = bf::SampleRef::fromString (tr.getProperty (idSample).toString());
+        sampleRefsToLoad[(size_t) t][0] = bf::SampleRef::fromString (tr.getProperty (idSample).toString());
+
+        for (const auto& hit : tr)
+        {
+            const int v = hit.getProperty (idVariant, 0);
+
+            if (hit.hasType (idHitSample) && v > 0 && v < bf::kSampleVariants)
+                sampleRefsToLoad[(size_t) t][(size_t) v] = bf::SampleRef::fromString (hit.getProperty (idSample).toString());
+        }
     }
 
     publishModel();
@@ -615,8 +696,17 @@ void BreakForgeProcessor::setStateInformation (const void* data, int sizeInBytes
     // Sample loading belongs to the message thread; hosts may restore state from elsewhere.
     const auto applySamples = [this, refs = sampleRefsToLoad] {
         for (int t = 0; t < bf::kNumTracks; ++t)
-            if (! refs[(size_t) t].isEmpty() && refs[(size_t) t] != sampleManager.getRef (t))
-                sampleManager.load (t, refs[(size_t) t]);
+        {
+            const auto& trackRefs = refs[(size_t) t];
+
+            if (! trackRefs[0].isEmpty() && trackRefs[0] != sampleManager.getRef (t))
+                sampleManager.load (t, trackRefs[0]);
+
+            // Per-hit slots are restored exactly, including clearing ones the project doesn't use.
+            for (int v = 1; v < bf::kSampleVariants; ++v)
+                if (trackRefs[(size_t) v] != sampleManager.getRef (t, v))
+                    sampleManager.load (t, trackRefs[(size_t) v], v);
+        }
     };
 
     if (juce::MessageManager::existsAndIsCurrentThread())

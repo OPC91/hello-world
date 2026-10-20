@@ -8,12 +8,13 @@
 namespace bf
 {
 
-/** Loads track samples on a background thread and installs them into SampleSlots on the
-    message thread. Decoding, resampling and kit rendering never happen on the audio thread.
+/** Loads track samples (and per-hit sample variants) on a background thread and installs them
+    into SampleSlots on the message thread. Decoding, resampling and kit rendering never happen on
+    the audio thread.
 
     Missing or unreadable files never crash or silence a track: the track falls back to a
-    built-in sound, keeps its original reference (so saving the project doesn't lose the path)
-    and reports a warning the UI can show. */
+    built-in sound (a per-hit sample falls back to the track's sample), keeps its original
+    reference (so saving the project doesn't lose the path) and reports a warning the UI can show. */
 class SampleManager : public juce::ChangeBroadcaster
 {
 public:
@@ -29,9 +30,10 @@ public:
     void setSampleRate (double);
     double getSampleRate() const noexcept { return sampleRate; }
 
-    /** Requests a sample for a track. Loading is asynchronous; results are applied by
-        handleCompletedJobs(). Before a sample rate is known the request is just remembered. */
-    void load (int track, const SampleRef&);
+    /** Requests a sample for a track (variant 0) or one of its per-hit samples (1..15). Loading
+        is asynchronous; results are applied by handleCompletedJobs(). Before a sample rate is
+        known the request is just remembered. */
+    void load (int track, const SampleRef&, int variant = 0);
 
     /** Applies finished loads. Call regularly on the message thread. */
     void handleCompletedJobs();
@@ -39,33 +41,39 @@ public:
     /** For tests and offline use: blocks until all queued loads finished, then applies them. */
     bool waitAndApply (int timeoutMs);
 
-    const SampleRef& getRef (int track) const noexcept    { return refs[(size_t) track]; }
-    bool hasWarning (int track) const noexcept            { return warnings[(size_t) track].isNotEmpty(); }
-    const juce::String& getWarning (int track) const noexcept { return warnings[(size_t) track]; }
-    bool isLoading (int track) const noexcept             { return pending[(size_t) track] > 0; }
+    const SampleRef& getRef (int track, int variant = 0) const noexcept        { return refs[slot (track, variant)]; }
+    bool hasWarning (int track, int variant = 0) const noexcept                { return warnings[slot (track, variant)].isNotEmpty(); }
+    const juce::String& getWarning (int track, int variant = 0) const noexcept { return warnings[slot (track, variant)]; }
+    bool isLoading (int track, int variant = 0) const noexcept                 { return pending[slot (track, variant)] > 0; }
+
+    static size_t slot (int track, int variant) noexcept
+    {
+        return (size_t) (juce::jlimit (0, kNumTracks - 1, track) * kSampleVariants + juce::jlimit (0, kSampleVariants - 1, variant));
+    }
 
 private:
     struct Result
     {
         int track = 0;
+        int variant = 0;
         std::uint32_t generation = 0;
         SampleData::Ptr data;
         juce::String error;
         SampleRef loadedRef;
     };
 
-    void startJob (int track, const SampleRef& ref, bool isFallback);
-    Result runJob (int track, std::uint32_t generation, SampleRef ref, double rate) const;
+    void startJob (int track, int variant, const SampleRef& ref, bool isFallback);
+    Result runJob (int track, int variant, std::uint32_t generation, SampleRef ref, double rate) const;
 
     SampleSlots& slots;
     BuiltInRenderer renderBuiltIn;
     FallbackProvider fallbackFor;
 
     double sampleRate = 0.0;
-    std::array<SampleRef, kNumTracks> refs;
-    std::array<juce::String, kNumTracks> warnings;
-    std::array<std::uint32_t, kNumTracks> generation {};
-    std::array<int, kNumTracks> pending {};
+    std::array<SampleRef, kNumSampleSlots> refs;
+    std::array<juce::String, kNumSampleSlots> warnings;
+    std::array<std::uint32_t, kNumSampleSlots> generation {};
+    std::array<int, kNumSampleSlots> pending {};
 
     juce::CriticalSection resultLock;
     std::vector<Result> results;

@@ -38,6 +38,7 @@ struct HitEvent
     float velocity = 1.0f;     // 0..1 after groove, accent and humanize
     float pitch = 0.0f;        // step pitch offset in semitones
     double lengthPpq = 0.25;   // gate length
+    int sample = 0;            // sample variant: 0 = track sample, 1..15 = per-hit sample
 };
 
 namespace scheduling
@@ -125,6 +126,7 @@ namespace scheduling
                     e.ppq = time;
                     e.velocity = juce::jlimit (1.0f / 127.0f, 1.0f, vel);
                     e.pitch = (float) step.pitch;
+                    e.sample = step.sample;
                     e.lengthPpq = ratchets > 1 ? subLen * 0.9 : juce::jmax (0.01, (double) step.length * stepLen);
                     fn (e);
                 }

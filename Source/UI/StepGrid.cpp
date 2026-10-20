@@ -1,6 +1,7 @@
 #include "StepGrid.h"
 #include "StepPopup.h"
 #include "Theme.h"
+#include "Core/AudioFileLoader.h"
 #include "Plugin/PluginProcessor.h"
 
 namespace bf::ui
@@ -28,6 +29,125 @@ void PatternView::setPlayhead (float step)
         playhead = step;
         repaint();
     }
+}
+
+int PatternView::stepAtX (int x) const
+{
+    const int len = juce::jmax (1, pattern().length);
+    return juce::jlimit (0, len - 1, (int) ((float) x * (float) len / (float) juce::jmax (1, getWidth())));
+}
+
+juce::StringArray PatternView::audioFilesIn (const juce::StringArray& files)
+{
+    juce::StringArray audio;
+
+    for (const auto& f : files)
+        if (isSupportedAudioFile (juce::File (f)))
+            audio.add (f);
+
+    // Slices are usually numbered: "break_1.wav, break_2.wav ... break_10.wav".
+    std::sort (audio.begin(), audio.end(), [] (const juce::String& a, const juce::String& b) {
+        return juce::File (a).getFileName().compareNatural (juce::File (b).getFileName()) < 0;
+    });
+
+    return audio;
+}
+
+bool PatternView::isInterestedInFileDrag (const juce::StringArray& files)
+{
+    return ! audioFilesIn (files).isEmpty();
+}
+
+void PatternView::fileDragMove (const juce::StringArray& files, int x, int y)
+{
+    const int hit = layout.hitTest (y);
+    const int track = hit >= 0 ? hit : hit == -2 ? state.getSelectedTrack() : -1;
+    const int step = stepAtX (x);
+    const int count = audioFilesIn (files).size();
+
+    if (track != dropTrack || step != dropStep || count != dropCount)
+    {
+        dropTrack = track;
+        dropStep = step;
+        dropCount = count;
+        repaint();
+    }
+}
+
+void PatternView::fileDragExit (const juce::StringArray&)
+{
+    dropTrack = dropStep = -1;
+    repaint();
+}
+
+void PatternView::filesDropped (const juce::StringArray& files, int x, int y)
+{
+    fileDragMove (files, x, y);
+    const int track = dropTrack, first = dropStep;
+    dropTrack = dropStep = -1;
+    repaint();
+
+    if (track < 0)
+    {
+        if (state.showStatus)
+            state.showStatus ("Drop samples on a track's steps (the accent row has no sound)");
+        return;
+    }
+
+    auto& proc = state.processor;
+    const auto audio = audioFilesIn (files);
+    const auto& trackName = proc.getTrackSettings()[(size_t) track].name;
+    int placed = 0;
+
+    for (int i = 0; i < audio.size() && first + i < pattern().length; ++i)
+    {
+        if (proc.assignHitSample (track, first + i, SampleRef::fromFile (juce::File (audio[i]))) < 0)
+        {
+            if (state.showStatus)
+                state.showStatus (trackName + " already uses 15 different per-hit samples: reset some hits to the track sound first");
+            break;
+        }
+
+        ++placed;
+    }
+
+    state.setSelectedTrack (track);
+
+    if (placed > 0 && state.showStatus)
+    {
+        if (placed == 1)
+            state.showStatus (trackName + " step " + juce::String (first + 1) + " now plays "
+                              + juce::File (audio[0]).getFileNameWithoutExtension());
+        else
+            state.showStatus (juce::String (placed) + " samples placed on " + trackName + " steps "
+                              + juce::String (first + 1) + "-" + juce::String (first + placed)
+                              + (placed < audio.size() ? " (the rest didn't fit in the pattern)" : ""));
+    }
+}
+
+void PatternView::paintDropTarget (juce::Graphics& g, float cw)
+{
+    if (dropTrack < 0 || dropStep < 0)
+        return;
+
+    const auto row = layout.row (dropTrack, getWidth()).toFloat();
+    const int last = juce::jmin (pattern().length, dropStep + juce::jmax (1, dropCount)) - 1;
+    const auto area = juce::Rectangle<float> (dropStep * cw, row.getY(), (last - dropStep + 1) * cw, row.getHeight()).reduced (1.0f);
+
+    g.setColour (Colours::accent.withAlpha (0.25f));
+    g.fillRoundedRectangle (area, 3.0f);
+    g.setColour (Colours::accent);
+    g.drawRoundedRectangle (area, 3.0f, 2.0f);
+}
+
+void PatternView::paintHitSampleMarker (juce::Graphics& g, juce::Rectangle<float> cell)
+{
+    // A folded corner: "this hit plays its own sample".
+    const float s = juce::jlimit (5.0f, 9.0f, cell.getHeight() * 0.3f);
+    juce::Path corner;
+    corner.addTriangle (cell.getRight() - s, cell.getY(), cell.getRight(), cell.getY(), cell.getRight(), cell.getY() + s);
+    g.setColour (juce::Colours::white.withAlpha (0.9f));
+    g.fillPath (corner);
 }
 
 int PatternView::defaultVelocity (int track)
@@ -214,6 +334,9 @@ void StepGrid::paint (juce::Graphics& g)
                 g.fillRect (x - 1.0f, cell.getY() + 1.0f, 2.0f, 4.0f);
             }
 
+            if (st.sample > 0)
+                paintHitSampleMarker (g, cell);
+
             if (st.pitch != 0 && cell.getWidth() > 18.0f && cell.getHeight() > 16.0f)
             {
                 g.setColour (juce::Colours::black.withAlpha (0.7f));
@@ -248,6 +371,7 @@ void StepGrid::paint (juce::Graphics& g)
     }
 
     paintBeatDividers (g, cw);
+    paintDropTarget (g, cw);
     paintPlayhead (g, 0.0f, cw);
 }
 

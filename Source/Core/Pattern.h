@@ -10,6 +10,11 @@ constexpr int kNumTracks   = 8;
 constexpr int kMaxSteps    = 32;
 constexpr int kNumPatterns = 16;
 
+/** Each track has its own sample (variant 0) plus up to 15 per-hit samples that individual
+    steps can use instead, so one track can play different sounds on different hits. */
+constexpr int kSampleVariants = 16;
+constexpr int kNumSampleSlots = kNumTracks * kSampleVariants;
+
 enum class Resolution : std::uint8_t
 {
     Sixteenth    = 0,
@@ -26,6 +31,7 @@ struct Step
     float nudge = 0.0f;             // -0.5..+0.5 of a step
     std::int8_t pitch = 0;          // -12..+12 semitones
     float length = 1.0f;            // gate length in steps (0.1..16), used by ADSR voices and MIDI out
+    std::uint8_t sample = 0;        // 0 = the track's sample, 1..15 = a per-hit sample of the track
 
     bool operator== (const Step&) const = default;
 };

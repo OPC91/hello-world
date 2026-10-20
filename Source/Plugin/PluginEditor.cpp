@@ -53,7 +53,7 @@ void BreakForgeEditor::paint (juce::Graphics& g)
 
     g.setColour (Colours::textDim);
     g.setFont (font (11.0f));
-    g.drawText ("Shift-drag: paint   Alt-drag: velocity   Right-click: step options",
+    g.drawText ("Drop audio on steps   Right-click: step options",
                 accentHeaderArea.reduced (8, 0), juce::Justification::centredRight);
 }
 

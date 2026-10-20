@@ -6,14 +6,24 @@
 namespace bf::ui
 {
 
-/** Common base for the two pattern views: model access, edit grouping and the velocity lane. */
-class PatternView : public juce::Component
+/** Common base for the two pattern views: model access, edit grouping, the velocity lane and
+    dropping samples onto individual hits. */
+class PatternView : public juce::Component,
+                    public juce::FileDragAndDropTarget
 {
 public:
     explicit PatternView (EditorState& s) : state (s) {}
 
     void setLayout (const RowLayout& l) { layout = l; repaint(); }
     void setPlayhead (float step);
+
+    // Dropping audio files on a step makes that hit play the file; several files fill the
+    // following steps in name order (handy for the slices of a chopped break).
+    bool isInterestedInFileDrag (const juce::StringArray&) override;
+    void fileDragEnter (const juce::StringArray& files, int x, int y) override { fileDragMove (files, x, y); }
+    void fileDragMove (const juce::StringArray&, int x, int y) override;
+    void fileDragExit (const juce::StringArray&) override;
+    void filesDropped (const juce::StringArray&, int x, int y) override;
 
 protected:
     const Pattern& pattern() const;
@@ -29,6 +39,10 @@ protected:
     void paintBeatDividers (juce::Graphics&, float cellWidth);
     juce::Colour offCellColour (int step) const;
     void setVelocityFromLane (int step, int y);
+    int stepAtX (int x) const;
+    void paintDropTarget (juce::Graphics&, float cellWidth);
+    static void paintHitSampleMarker (juce::Graphics&, juce::Rectangle<float> cell);
+    static juce::StringArray audioFilesIn (const juce::StringArray&);
     void audition (int track, int velocity);
     static int defaultVelocity (int track);
 
@@ -36,6 +50,7 @@ protected:
     RowLayout layout;
     float playhead = -1.0f;
     bool firstEditOfGesture = true;
+    int dropTrack = -1, dropStep = -1, dropCount = 0;
 };
 
 class StepGrid final : public PatternView

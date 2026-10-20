@@ -97,9 +97,24 @@ Load BreakForge as an **instrument**. Press play in the DAW: the sequencer follo
 
 Every track's sample slot (next to the track name) accepts:
 
-- **drag and drop** of a WAV, AIFF, FLAC or OGG file;
+- **drag and drop** of a WAV, AIFF, FLAC or OGG file — anywhere on the track's header row works;
 - **click → Load sample…** to use the file browser;
 - **click → Kit sounds** to choose any sound of the current kit for that role.
+
+### A different sample on each hit
+
+Drop an audio file onto **a step** (in the grid or the piano roll) and just that hit plays it; the
+rest of the track keeps the track's sample. The step is switched on if it was off, and a folded
+corner on the step marks hits with their own sample.
+
+- Drop **several files** at once and they fill consecutive steps in file-name order
+  (`slice 1.wav`, `slice 2.wav` … `slice 10.wav`), which is handy for laying out a chopped break.
+- **Right-click a step** to see which sample it plays, load a different one, or **Use track** to
+  go back to the track's sample.
+- Each track can hold up to 15 per-hit samples. Dropping the same file again reuses its slot, and
+  slots that no step uses any more are recycled.
+- Per-hit samples are saved with the project, used in audio exports, and if a file goes missing
+  that hit plays the track's sample instead.
 
 Files are decoded on a background thread and resampled to the host rate with a band-limited sinc resampler. Clips are capped at 30 s. The project stores the file path.
 

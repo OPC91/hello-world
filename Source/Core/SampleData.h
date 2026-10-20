@@ -23,7 +23,8 @@ public:
     const juce::String path;               // empty for built-in kit sounds
 };
 
-/** Holds the sample assigned to each track.
+/** Holds the samples of every track: variant 0 is the track's own sample, variants 1..15 are the
+    per-hit samples that individual steps can select.
 
     The message thread owns every SampleData via reference-counted pointers. The audio thread only
     reads raw pointers from atomics and takes extra references for voices that are playing, so it
@@ -35,16 +36,18 @@ public:
     SampleSlots() = default;
 
     // Owner thread (the message thread in the plugin) ----------------------------
-    void set (int track, SampleData::Ptr sample)
+    void set (int track, SampleData::Ptr sample, int variant = 0)
     {
-        if (owned[(size_t) track] != nullptr)
-            retired.push_back ({ owned[(size_t) track], juce::Time::getMillisecondCounter() });
+        const auto i = index (track, variant);
 
-        owned[(size_t) track] = std::move (sample);
-        current[(size_t) track].store (owned[(size_t) track].get(), std::memory_order_release);
+        if (owned[i] != nullptr)
+            retired.push_back ({ owned[i], juce::Time::getMillisecondCounter() });
+
+        owned[i] = std::move (sample);
+        current[i].store (owned[i].get(), std::memory_order_release);
     }
 
-    SampleData::Ptr get (int track) const { return owned[(size_t) track]; }
+    SampleData::Ptr get (int track, int variant = 0) const { return owned[index (track, variant)]; }
 
     void collectGarbage()
     {
@@ -57,17 +60,22 @@ public:
     }
 
     // Audio thread -----------------------------------------------------------
-    SampleData* acquire (int track) const noexcept { return current[(size_t) track].load (std::memory_order_acquire); }
+    SampleData* acquire (int track, int variant = 0) const noexcept { return current[index (track, variant)].load (std::memory_order_acquire); }
 
 private:
+    static size_t index (int track, int variant) noexcept
+    {
+        return (size_t) (juce::jlimit (0, kNumTracks - 1, track) * kSampleVariants + juce::jlimit (0, kSampleVariants - 1, variant));
+    }
+
     struct Retired
     {
         SampleData::Ptr sample;
         juce::uint32 retiredAt;
     };
 
-    std::array<std::atomic<SampleData*>, kNumTracks> current {};
-    std::array<SampleData::Ptr, kNumTracks> owned;
+    std::array<std::atomic<SampleData*>, kNumSampleSlots> current {};
+    std::array<SampleData::Ptr, kNumSampleSlots> owned;
     std::vector<Retired> retired;
 };
 
