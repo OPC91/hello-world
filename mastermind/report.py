@@ -1,47 +1,55 @@
-"""Loudness / peak report used by the CLI (extended with full metering in Phase 2)."""
+"""Text / JSON loudness, peak and correlation report (CLI)."""
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+import math
 
 import numpy as np
-import pyloudnorm
 
-from mastermind.dsp.primitives.truepeak import true_peak_dbtp
-
-
-@dataclass
-class Report:
-    integrated_lufs: float
-    sample_peak_dbfs: float
-    true_peak_dbtp: float
-    plr_db: float
-    correlation: float
-    duration_s: float
-
-    def as_dict(self) -> dict:
-        return asdict(self)
-
-    def format(self, title: str = "") -> str:
-        lines = [title] if title else []
-        lines += [
-            f"  Integrated loudness : {self.integrated_lufs:7.2f} LUFS",
-            f"  True peak           : {self.true_peak_dbtp:7.2f} dBTP",
-            f"  Sample peak         : {self.sample_peak_dbfs:7.2f} dBFS",
-            f"  PLR (TP - LUFS)     : {self.plr_db:7.2f} dB",
-            f"  Phase correlation   : {self.correlation:7.3f}",
-            f"  Duration            : {self.duration_s:7.2f} s",
-        ]
-        return "\n".join(lines)
+from mastermind.dsp.metering.analysis import FileAnalysis, analyze
 
 
-def analyse(x: np.ndarray, sample_rate: float) -> Report:
-    meter = pyloudnorm.Meter(sample_rate)
-    lufs = float(meter.integrated_loudness(x.T)) if x.shape[-1] > 0.4 * sample_rate else float("-inf")
-    peak = float(np.abs(x).max()) if x.size else 0.0
-    sp = 20 * np.log10(max(peak, 1e-12))
-    tp = true_peak_dbtp(x)
-    l, r = x[0], x[1]
-    denom = np.sqrt(np.dot(l, l) * np.dot(r, r))
-    corr = float(np.dot(l, r) / denom) if denom > 0 else 0.0
-    return Report(lufs, sp, tp, tp - lufs, corr, x.shape[-1] / sample_rate)
+def _f(v: float, fmt: str = "7.2f") -> str:
+    return (
+        format(v, fmt)
+        if isinstance(v, (int, float)) and math.isfinite(v)
+        else "   -inf"
+        if v == float("-inf")
+        else "    n/a"
+    )
+
+
+def format_report(
+    a: FileAnalysis, title: str = "", target_lufs: float | None = None, ceiling: float | None = None
+) -> str:
+    lines = [title] if title else []
+    integ = f"  Integrated loudness : {_f(a.integrated_lufs)} LUFS"
+    if target_lufs is not None and math.isfinite(a.integrated_lufs):
+        integ += f"   ({a.integrated_lufs - target_lufs:+.1f} LU vs target {target_lufs:g})"
+    tp = f"  True peak           : {_f(a.true_peak_dbtp)} dBTP"
+    if ceiling is not None and a.true_peak_dbtp > ceiling:
+        tp += f"   OVER ceiling {ceiling:g}"
+    lines += [
+        integ,
+        f"  Loudness range      : {_f(a.lra_lu)} LU",
+        f"  Max momentary       : {_f(a.max_momentary_lufs)} LUFS",
+        f"  Max short-term      : {_f(a.max_short_term_lufs)} LUFS",
+        tp,
+        f"  Sample peak         : {_f(a.sample_peak_dbfs)} dBFS",
+        f"  PLR (TP - I)        : {_f(a.plr_db)} dB",
+        f"  Crest factor        : {_f(a.crest_db)} dB",
+        f"  Phase correlation   : {_f(a.correlation, '7.3f')}"
+        f"   (time below 0: {a.negative_correlation_fraction * 100:.1f} %)",
+        "  Band correlation    : "
+        + "  ".join(
+            f"{lbl} {v:+.2f}{'!' if v < 0 else ''}" for lbl, v in zip(a.band_labels, a.band_correlation, strict=True)
+        ),
+    ]
+    if a.mono_warning:
+        lines.append(f"  WARNING: correlation negative for {a.longest_negative_run_s:.1f} s - check mono compatibility")
+    lines.append(f"  Duration            : {_f(a.duration_s)} s")
+    return "\n".join(lines)
+
+
+def analyse(x: np.ndarray, sample_rate: float) -> FileAnalysis:
+    return analyze(x, sample_rate)

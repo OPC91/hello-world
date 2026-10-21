@@ -17,10 +17,11 @@ import time
 from pathlib import Path
 
 from mastermind.dsp.chain import MasteringChain
+from mastermind.dsp.metering.targets import LOUDNESS_TARGETS
 from mastermind.engine.offline import render_to_file
 from mastermind.io.audio_file import load_audio
 from mastermind.io.export import BIT_DEPTHS
-from mastermind.report import analyse
+from mastermind.report import analyse, format_report
 
 
 def _load_chain(path: str | None) -> MasteringChain:
@@ -55,12 +56,22 @@ def cmd_master(args: argparse.Namespace) -> int:
 
     before = analyse(audio.samples, audio.sample_rate)
     after = analyse(y, audio.sample_rate)
+    target = _target(args)
+    ceiling = chain.find("limiter").get_param("ceiling_db")
     if args.json:
-        print(json.dumps({"input": before.as_dict(), "output": after.as_dict(), "file": str(out)}, indent=2))
+        print(json.dumps({"input": before.summary(), "output": after.summary(), "file": str(out)}, indent=2))
     else:
-        print(before.format(f"Input: {args.input}"))
-        print(after.format(f"Output: {out}"))
+        print(format_report(before, f"Input: {args.input}", target))
+        print(format_report(after, f"Output: {out}", target, ceiling))
     return 0
+
+
+def _target(args: argparse.Namespace) -> float | None:
+    if getattr(args, "target_lufs", None) is not None:
+        return args.target_lufs
+    if getattr(args, "target", None):
+        return LOUDNESS_TARGETS[args.target]
+    return None
 
 
 def cmd_analyze(args: argparse.Namespace) -> int:
@@ -68,15 +79,21 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         audio = load_audio(path)
         rep = analyse(audio.samples, audio.sample_rate)
         if args.json:
-            print(json.dumps({"file": path, **rep.as_dict()}))
+            print(json.dumps({"file": path, **rep.summary()}))
         else:
-            print(rep.format(path))
+            print(format_report(rep, path, _target(args)))
     return 0
 
 
 def cmd_chain_template(args: argparse.Namespace) -> int:
     print(json.dumps(MasteringChain.default().to_dict(), indent=2))
     return 0
+
+
+def _add_target_args(p: argparse.ArgumentParser) -> None:
+    named = [k for k, v in LOUDNESS_TARGETS.items() if v is not None]
+    p.add_argument("--target", choices=named, help="loudness target to compare against")
+    p.add_argument("--target-lufs", type=float, help="custom loudness target")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -92,12 +109,14 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--ceiling", type=float, help="limiter ceiling in dBTP")
     m.add_argument("--gain", type=float, help="limiter input gain in dB")
     m.add_argument("--json", action="store_true", help="print the report as JSON")
+    _add_target_args(m)
     m.add_argument("-q", "--quiet", action="store_true")
     m.set_defaults(func=cmd_master)
 
     a = sub.add_parser("analyze", help="print a loudness/peak/correlation report")
     a.add_argument("inputs", nargs="+")
     a.add_argument("--json", action="store_true")
+    _add_target_args(a)
     a.set_defaults(func=cmd_analyze)
 
     t = sub.add_parser("chain-template", help="print the default chain as JSON")

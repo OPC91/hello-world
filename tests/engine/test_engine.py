@@ -1,6 +1,7 @@
 import time
 
 import numpy as np
+import pytest
 
 from mastermind.dsp.chain import MasteringChain
 from mastermind.engine.commands import CommandQueue, Reorder, SetBypass, SetParam
@@ -65,7 +66,7 @@ def test_engine_runs_headless_and_applies_commands(sr):
             snaps += eng.meters.drain()
             time.sleep(0.02)
         assert len(snaps) >= 10
-        assert "limiter.gr" in snaps[-1]
+        assert "limiter.gr" in snaps[-1]["gr"]
         snap = eng.snapshot_chain()
         assert snap.find("limiter").get_param("drive_db") == 9.0
         assert snap is not eng.chain
@@ -81,3 +82,32 @@ def test_post_without_running_engine_applies_immediately():
     eng = PlaybackEngine(use_device=False)
     eng.post(SetParam("eq", "mode", "linear"))
     assert eng.chain.find("eq").get_param("mode") == "linear"
+
+
+def test_engine_publishes_input_and_output_meters(sr):
+    from mastermind.engine.commands import SetParam
+
+    eng = PlaybackEngine(use_device=False, block_size=1024)
+    eng.post(SetParam("input_gain", "gain_db", 6.0))
+    eng.load(music_like(3.0, sr) * 0.3, sr)
+    try:
+        eng.play()
+        snaps = []
+        deadline = time.time() + 6
+        while time.time() < deadline and (not snaps or snaps[-1]["out"]["momentary"] == float("-inf")):
+            snaps += eng.meters.drain()
+            time.sleep(0.05)
+        while time.time() < deadline and len(snaps) < 30:
+            snaps += eng.meters.drain()
+            time.sleep(0.05)
+        last = snaps[-1]
+        assert {"in", "out", "gr"} <= set(last)
+        assert last["out"]["momentary"] == pytest.approx(last["in"]["momentary"] + 6.0, abs=0.5)
+        assert last["out"]["spectrum"] is not None
+        eng.reset_meters()
+        eng.pause()
+        time.sleep(0.2)
+        eng.meters.drain()
+        assert eng.meters.drain() == []  # paused: no meter snapshots
+    finally:
+        eng.stop_engine()

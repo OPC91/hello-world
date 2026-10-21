@@ -26,6 +26,7 @@ import time
 import numpy as np
 
 from mastermind.dsp.chain import MasteringChain
+from mastermind.dsp.metering.bank import MeterBank
 from mastermind.engine.commands import Call, Command, CommandQueue
 from mastermind.engine.ringbuffer import AudioRingBuffer, SnapshotQueue
 
@@ -109,6 +110,9 @@ class PlaybackEngine:
         self._stream = None
         self.has_device = False
         self.loop = False
+        self.meters_in: MeterBank | None = None
+        self.meters_out: MeterBank | None = None
+        self._reset_meters = False
 
     # ---- source / transport (callable from any thread) ----------------
     def load(self, audio: np.ndarray, sample_rate: float) -> None:
@@ -117,6 +121,8 @@ class PlaybackEngine:
         self._sr = float(sample_rate)
         self._pos = 0
         self.chain.prepare(self._sr, self.block_size)
+        self.meters_in = MeterBank(self._sr)
+        self.meters_out = MeterBank(self._sr)
         self.start_engine()
 
     @property
@@ -145,6 +151,10 @@ class PlaybackEngine:
         """Approximate source frame currently audible."""
         buffered = self._ring.available_read()
         return max(0, self._pos - buffered - self.chain.latency_samples)
+
+    def reset_meters(self) -> None:
+        """Clear integrated loudness, LRA, peak holds etc. (applied on the engine thread)."""
+        self._reset_meters = True
 
     def post(self, cmd: Command) -> None:
         """Apply a chain edit: queued for the engine thread if it runs, else immediately."""
@@ -220,11 +230,27 @@ class PlaybackEngine:
             if self._ring.available_write() < self.block_size:
                 time.sleep(self.block_size / self._sr / 4)
                 continue
+            if self._reset_meters:
+                self._reset_meters = False
+                self.meters_in.reset()
+                self.meters_out.reset()
+            was_playing = self._playing
             x = self._next_source_block()
             y = self.chain.process(x)
             self._ring.write(y.astype(np.float32))
-            snap = {"t": time.monotonic(), "pos": self._pos, **self.chain.meter_taps()}
-            self.meters.push(snap)
+            # Meters only run while audio is playing, so pauses don't count as silence.
+            if was_playing:
+                self.meters_in.process(x)
+                self.meters_out.process(y)
+                self.meters.push(
+                    {
+                        "t": time.monotonic(),
+                        "pos": self._pos,
+                        "in": self.meters_in.snapshot(),
+                        "out": self.meters_out.snapshot(),
+                        "gr": self.chain.meter_taps(),
+                    }
+                )
 
     def _callback(self, outdata, frames, time_info, status) -> None:  # PortAudio thread
         tmp = np.empty((2, frames), dtype=np.float32)

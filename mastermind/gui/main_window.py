@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QDockWidget,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
@@ -26,16 +27,22 @@ from PySide6.QtWidgets import (
     QProgressDialog,
     QSlider,
     QSplitter,
+    QTabWidget,
     QToolBar,
     QVBoxLayout,
     QWidget,
 )
 
 from mastermind.dsp.chain import MasteringChain
+from mastermind.dsp.metering.analysis import FileAnalysis, analyze
 from mastermind.engine.commands import Reorder, SetBypass, SetParam
-from mastermind.engine.offline import render_to_file
+from mastermind.engine.offline import render, render_to_file
 from mastermind.engine.realtime import PlaybackEngine
 from mastermind.gui.chain_view import ChainListWidget
+from mastermind.gui.meters.analysis_panel import AnalysisPanel
+from mastermind.gui.meters.meter_panel import MeterPanel
+from mastermind.gui.meters.spectrum_panel import SpectrumPanel
+from mastermind.gui.meters.stereo_panel import StereoPanel
 from mastermind.gui.param_panel import ParamPanel
 from mastermind.io.audio_file import SUPPORTED_EXTENSIONS, AudioData, load_audio
 from mastermind.io.export import BIT_DEPTHS
@@ -76,6 +83,26 @@ class ExportWorker(QObject):
             self.failed.emit(f"Export failed: {e}")
 
 
+class AnalysisWorker(QObject):
+    """Analyses the input, renders the chain offline and analyses the output."""
+
+    finished = Signal(object, object)
+    failed = Signal(str)
+
+    def __init__(self, chain: MasteringChain, audio: AudioData):
+        super().__init__()
+        self.chain, self.audio = chain, audio
+
+    def run(self) -> None:
+        try:
+            a_in = analyze(self.audio.samples, self.audio.sample_rate)
+            y = render(self.chain, self.audio.samples, self.audio.sample_rate)
+            a_out = analyze(y, self.audio.sample_rate)
+            self.finished.emit(a_in, a_out)
+        except Exception as e:  # surfaced to the user
+            self.failed.emit(f"Analysis failed: {e}")
+
+
 class ExportDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -101,22 +128,46 @@ class MainWindow(QMainWindow):
     def __init__(self, use_device: bool = True):
         super().__init__()
         self.setWindowTitle("MasterMind")
-        self.resize(1100, 700)
+        self.resize(1400, 860)
         self.setAcceptDrops(True)
         self.engine = PlaybackEngine(use_device=use_device)
         self.audio: AudioData | None = None
         self._export_thread: QThread | None = None
-        self._last_meters: dict[str, Any] = {}
 
         self._build_toolbar()
         self.chain_list = ChainListWidget(self._on_reorder, self._on_bypass)
         self.chain_list.currentRowChanged.connect(self._on_select)
         self.params = ParamPanel(self._on_param)
 
+        self.spectrum = SpectrumPanel()
+        self.stereo = StereoPanel()
+        self.analysis = AnalysisPanel()
+        self.analysis.analyze_requested.connect(self.run_analysis)
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self.params, "Parameters")
+        self.tabs.addTab(self.spectrum, "Spectrum")
+        self.tabs.addTab(self.stereo, "Stereo")
+        self.tabs.addTab(self.analysis, "Analysis")
+
         split = QSplitter()
         split.addWidget(self.chain_list)
-        split.addWidget(self.params)
-        split.setSizes([260, 840])
+        split.addWidget(self.tabs)
+        split.setSizes([240, 760])
+
+        self.meters = MeterPanel()
+        self.meters.loudness.reset_requested.connect(self.reset_meters)
+        self.meters.group.buttonToggled.connect(lambda *_: self.stereo.clear())
+        dock = QDockWidget("Meters", self)
+        dock.setObjectName("meters")
+        dock.setWidget(self.meters)
+        dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        )
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+        self._dock = dock
+        self._docks_sized = False
+        self._analysis_thread: QThread | None = None
+        self._play_clock = 0.0
 
         self.pos_slider = QSlider(Qt.Orientation.Horizontal)
         self.pos_slider.setRange(0, 1000)
@@ -132,8 +183,6 @@ class MainWindow(QMainWindow):
         lay.addWidget(split, 1)
         self.setCentralWidget(root)
 
-        self.gr_label = QLabel("")
-        self.statusBar().addPermanentWidget(self.gr_label)
         self.chain_list.set_chain(self.engine.chain)
         self.chain_list.setCurrentRow(0)
 
@@ -169,6 +218,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Open failed", f"Could not open {path}:\n{e}")
             return
         self.engine.load(self.audio.samples, self.audio.sample_rate)
+        self.meters.loudness.clear_history()
+        self.stereo.clear()
+        self._play_clock = 0.0
         dev = "" if self.engine.has_device else "  [no audio device: silent playback]"
         self.statusBar().showMessage(
             f"{Path(path).name} — {self.audio.sample_rate} Hz, {fmt_time(self.audio.duration)}, "
@@ -217,6 +269,59 @@ class MainWindow(QMainWindow):
 
     def _on_reorder(self, order: list[str]) -> None:
         self.engine.post(Reorder(tuple(order)))
+
+    # ---- meters / analysis ---------------------------------------------------
+    @property
+    def ceiling(self) -> float:
+        return float(self.engine.chain.find("limiter").get_param("ceiling_db"))
+
+    def reset_meters(self) -> None:
+        self.engine.reset_meters()
+        self.meters.loudness.clear_history()
+        self.stereo.clear()
+
+    def run_analysis(self) -> QThread | None:
+        """Full-file analysis of the input and the rendered output, on a background thread."""
+        if self.audio is None:
+            self.analysis.set_error("Open a file first.")
+            return None
+        worker = AnalysisWorker(self.engine.snapshot_chain(), self.audio)
+        thread = QThread(self)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._analysis_finished)
+        worker.failed.connect(self._analysis_failed)
+        worker.finished.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        thread.finished.connect(worker.deleteLater)
+        self._analysis_worker = worker
+        self._analysis_thread = thread
+        self.analysis.set_busy("Analyzing input, rendering and analyzing output…")
+        thread.start()
+        return thread
+
+    def _analysis_finished(self, a_in: FileAnalysis, a_out: FileAnalysis) -> None:
+        self.analysis.set_results(a_in, a_out, self.meters.loudness.target, self.ceiling)
+
+    def _analysis_failed(self, msg: str) -> None:
+        self.analysis.set_error(msg)
+
+    def _update_meters(self, snaps: list[dict]) -> None:
+        src = self.meters.source
+        for snap in snaps:
+            self._play_clock += self.engine.block_size / max(self.engine.sample_rate, 1.0)
+            for key in ("in", "out"):
+                self.meters.loudness.push_history(key, self._play_clock, snap[key]["short_term"])
+            self.stereo.push_gonio(*snap[src]["gonio"])
+        last = snaps[-1]
+        m = last[src]
+        self.meters.loudness.update_values(m, src, self.ceiling)
+        self.meters.correlation.update_values(m)
+        self.meters.gr.update_values(last["gr"])
+        self.stereo.update_values(m)
+        self.spectrum.update_values(
+            self.engine.meters_out.spectrum.grid, last["in"]["spectrum"], last["out"]["spectrum"]
+        )
 
     # ---- export --------------------------------------------------------------
     def export_dialog(self) -> None:
@@ -268,9 +373,7 @@ class MainWindow(QMainWindow):
     def _tick(self) -> None:
         snaps = self.engine.meters.drain()
         if snaps:
-            self._last_meters = snaps[-1]
-            gr = {k: v for k, v in self._last_meters.items() if k.endswith("gr") or ".gr_" in k}
-            self.gr_label.setText("  ".join(f"{k}: {v:5.1f} dB" for k, v in gr.items()))
+            self._update_meters(snaps)
         n = self.engine.duration_samples
         if n:
             pos = self.engine.position
@@ -280,10 +383,17 @@ class MainWindow(QMainWindow):
             self.time_label.setText(f"{fmt_time(pos / sr)} / {fmt_time(n / sr)}")
         self.act_play.setText("Pause" if self.engine.playing else "Play")
 
+    def showEvent(self, e) -> None:
+        super().showEvent(e)
+        if not self._docks_sized:  # only effective once the window has a size
+            self._docks_sized = True
+            self.resizeDocks([self._dock], [500], Qt.Orientation.Horizontal)
+
     def closeEvent(self, e) -> None:
         self._timer.stop()
         self.engine.stop_engine()
-        if self._export_thread is not None:
-            self._export_thread.quit()
-            self._export_thread.wait(5000)
+        for th in (self._export_thread, self._analysis_thread):
+            if th is not None:
+                th.quit()
+                th.wait(5000)
         super().closeEvent(e)

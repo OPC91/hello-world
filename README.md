@@ -4,7 +4,7 @@ AI-assisted mastering prototype in Python. It exists to **validate the DSP and
 matching logic** before a port to a C++/JUCE plugin, so the DSP is modular,
 GUI-free, block-based and documented with its JUCE counterparts.
 
-> **Status: Phase 1 (mastering chain) complete.** Metering (Phase 2), presets
+> **Status: Phases 1 (mastering chain) and 2 (metering) complete.** Presets
 > (Phase 3), reference matching (Phase 4) and AI assist (Phase 5) are next.
 
 ## Setup
@@ -25,7 +25,7 @@ real-time "null" output so the engine and meters keep working.
 uv run mastermind [file.wav]                         # GUI
 uv run mastermind-cli master mix.wav -o master.wav --gain 6 --ceiling -1 --bits 24
 uv run mastermind-cli chain-template > chain.json    # edit, then: --chain chain.json
-uv run mastermind-cli analyze master.wav [--json]
+uv run mastermind-cli analyze master.wav [--json] [--target Spotify | --target-lufs -11]
 uv run pytest                                        # full suite (~30 s, GUI runs offscreen)
 ```
 
@@ -40,10 +40,12 @@ mastermind/
                           truepeak, delay, midside
     modules/              input_gain, eq, multiband_comp, saturation, imager,
                           glue_comp, limiter, dither
+    metering/             kweight, loudness (M/S/I/LRA/TP/PLR/crest), correlation
+                          (+ per band, goniometer), spectrum, targets, bank, analysis
   engine/                 offline.py (render/export), realtime.py (playback),
                           ringbuffer.py, commands.py
   io/                     audio_file.py (load), export.py (16/24/32f WAV)
-  gui/                    PySide6 + pyqtgraph
+  gui/                    PySide6 + pyqtgraph; gui/meters/ = meter widgets
   cli.py, report.py
 tests/                    pytest: dsp/, engine/, cli/, gui/
 docs/juce_port_map.md     Python module -> JUCE class mapping
@@ -94,6 +96,29 @@ the next block.
 | True-peak limiter | 4x oversampled detection with parabolic refinement, lookahead hold + box-smoothed gain (provably reaches target before the peak), release, sample-peak safety clip, 0.15 dB internal margin |
 | Dither | TPDF with optional 1st-order noise shaping. **Export only**: pass-through in preview |
 
+### Metering (Phase 2)
+
+All meter maths lives in `dsp/metering` and is shared by the live meters, the
+full-file analysis and the CLI report.
+
+| Meter | Implementation |
+|---|---|
+| Loudness | BS.1770-4 K-weighting (matches the published 48 kHz coefficients to 1e-15, re-derived for other rates). 100 ms hops → momentary (400 ms), short-term (3 s), gated integrated (-70 LUFS abs, -10 LU rel), **LRA** per EBU Tech 3342, max M/S |
+| Peaks | True peak (BS.1770 4x), sample peak, PLR (TP − I), crest factor (whole file and 3 s) |
+| Targets | Spotify -14, Apple -16, YouTube -14, Club -8, CD -9, Custom. Green within ±1 LU, amber within ±3 LU, red beyond. True peak turns red above the limiter ceiling |
+| Correlation | ⟨LR⟩/√(⟨L²⟩⟨R²⟩) with 300 ms one-pole smoothing, 2 s peak-hold (minimum), per-band (<250 Hz, 250–2k, 2k–8k, >8k via LR4) with negative-band flags, mono-compatibility warning after > 1 s below 0 |
+| Goniometer | M/S-rotated Lissajous (mono = vertical), auto-scaled |
+| Spectrum | 8192-pt Hann FFT, power averaged over channels, ~250 ms ballistics, 1/3-octave smoothing on a 1/24-octave grid. A full-scale sine reads 0 dB and pink noise reads flat. Input and output are overlaid, plus a reference curve with variance band (filled in Phase 4) |
+| Gain reduction | Multiband (4), glue, limiter |
+
+The real-time engine runs an input (pre-chain) and an output (post-chain) meter
+bank. A single toggle switches every meter between them, and the spectrum
+always overlays both. Meters only run while playing, so pauses don't count as
+silence, and **Reset** clears the integrated values. The **Analysis** tab
+analyses the full input and an offline render of the current chain on a
+background thread, then shows a stats table, short-term loudness over time and
+the long-term average spectrum.
+
 ### Validation highlights (all in `tests/`)
 
 * Crossovers: bands sum to 0 ± 0.01 dB at 44.1/48/96 kHz for several splits.
@@ -111,7 +136,18 @@ the next block.
   (40 Hz–20 kHz), and its kernel is exactly symmetric.
 * Dither: output lies on the integer grid, error variance = LSB²/4 (TPDF), and
   noise shaping tilts the noise floor upward.
-* End-to-end CLI and an offscreen GUI test (load, play, edit, bypass, export).
+* Loudness meter vs **EBU Tech 3341**: cases 1–5 (steady tones and gating),
+  9 (short-term constant), 12 (momentary constant), true-peak cases 15–18;
+  **EBU Tech 3342** LRA cases 1–4; agreement with pyloudnorm within 0.1 LU;
+  sample-rate and block-size independence. The EBU signals are regenerated
+  from their published descriptions (tones get a 20 ms fade so the
+  true-peak cases don't measure the onset discontinuity).
+* Correlation reads +1 for identical channels, -1 for inverted channels and ≈ 0
+  (|mean| < 0.02) for decorrelated noise. Also tested: smoothing time,
+  peak-hold, the 1 s mono-warning threshold, and per-band isolation (only
+  content above 8 kHz inverted → only the High band is flagged).
+* End-to-end CLI and offscreen GUI tests (load, play, edit, bypass, export,
+  meter colour coding, input/output toggle, full-file analysis).
 
 ## Adding presets
 
