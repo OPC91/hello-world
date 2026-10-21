@@ -4,8 +4,8 @@ AI-assisted mastering prototype in Python. It exists to **validate the DSP and
 matching logic** before a port to a C++/JUCE plugin, so the DSP is modular,
 GUI-free, block-based and documented with its JUCE counterparts.
 
-> **Status: Phases 1 (mastering chain) and 2 (metering) complete.** Presets
-> (Phase 3), reference matching (Phase 4) and AI assist (Phase 5) are next.
+> **Status: Phases 1–3 complete** (mastering chain, metering, presets + A/B).
+> Reference matching (Phase 4) and AI assist (Phase 5) are next.
 
 ## Setup
 
@@ -24,6 +24,9 @@ real-time "null" output so the engine and meters keep working.
 ```bash
 uv run mastermind [file.wav]                         # GUI
 uv run mastermind-cli master mix.wav -o master.wav --gain 6 --ceiling -1 --bits 24
+uv run mastermind-cli master mix.wav --preset hip-hop/trap   # auto-gain to the preset's LUFS
+uv run mastermind-cli master mix.wav --target Spotify        # default chain fitted to -14 LUFS
+uv run mastermind-cli presets [--search house] [--category Metal]
 uv run mastermind-cli chain-template > chain.json    # edit, then: --chain chain.json
 uv run mastermind-cli analyze master.wav [--json] [--target Spotify | --target-lufs -11]
 uv run pytest                                        # full suite (~30 s, GUI runs offscreen)
@@ -42,12 +45,16 @@ mastermind/
                           glue_comp, limiter, dither
     metering/             kweight, loudness (M/S/I/LRA/TP/PLR/crest), correlation
                           (+ per band, goniometer), spectrum, targets, bank, analysis
-  engine/                 offline.py (render/export), realtime.py (playback),
-                          ringbuffer.py, commands.py
+  engine/                 offline.py (render/export), realtime.py (playback, A/B,
+                          loudness-matched monitoring), ringbuffer.py, commands.py
+  presets/                schema.py (versioned pydantic models), factory_specs.py
+                          (genre table → presets), store.py (library), factory/*.json
+  matching/               loudness_fit.py (limiter gain → target LUFS)
   io/                     audio_file.py (load), export.py (16/24/32f WAV)
   gui/                    PySide6 + pyqtgraph; gui/meters/ = meter widgets
   cli.py, report.py
-tests/                    pytest: dsp/, engine/, cli/, gui/
+tools/                    build_factory_presets.py
+tests/                    pytest: dsp/, metering/, presets/, engine/, cli/, gui/
 docs/juce_port_map.md     Python module -> JUCE class mapping
 ```
 
@@ -146,16 +153,85 @@ the long-term average spectrum.
   (|mean| < 0.02) for decorrelated noise. Also tested: smoothing time,
   peak-hold, the 1 s mono-warning threshold, and per-band isolation (only
   content above 8 kHz inverted → only the High band is flagged).
+* Presets: all 35 requested genres ship, JSON is in sync with the generator,
+  presets are pairwise distinct, genre character holds (e.g. Trap sub > Classic
+  Rock sub by 5 dB+, Classical < Jazz < Folk < House loudness). Covered: search,
+  favourites persistence, save / import / export / delete, version handling,
+  rejection of invalid files.
+* Loudness fit: on a full render, the fitted gain lands within 0.5 LU of the
+  preset target with true peak under the ceiling. Unreachable targets are
+  reported as not converged.
+* A/B: B starts as a copy and is independent; queued edits keep their target;
+  A, B and Original line up sample-for-sample; loudness matching turns an
+  8 dB-louder chain down by 8 dB on the monitor only; switching is crossfaded.
 * End-to-end CLI and offscreen GUI tests (load, play, edit, bypass, export,
-  meter colour coding, input/output toggle, full-file analysis).
+  meter colour coding, input/output toggle, full-file analysis, preset
+  browser, apply with auto-gain, save, A/B toolbar, reference curve).
 
-## Adding presets
+## Presets (Phase 3)
 
-Preset files and the browser arrive in Phase 3. Until then, a chain is plain
-JSON (`mastermind-cli chain-template`): `{"version": 1, "slots": [{"type",
-"params", "bypass"}, ...]}`. The slot order is the processing order. Unknown
-parameters are ignored and out-of-range values are clamped. Files with a newer
-`version` are rejected.
+A preset is versioned JSON with two parts:
+
+* `chain`: exactly `MasteringChain.to_dict()` (module order, bypass, all parameters).
+* `target`: the sound it aims for. `lufs`, `true_peak_ceiling`, `crest_db`,
+  `lra_lu`, a 31-band 1/3-octave `spectrum` (dB, normalised to 0 dB power mean
+  over 100 Hz–10 kHz, so it describes *shape*), per-band stereo `band_width`
+  (%, low / low-mid / high-mid / high) and `mono_freq` (0 = off).
+
+```json
+{"format_version": 1, "id": "user/my-sound", "name": "My Sound", "category": "User",
+ "description": "...", "tags": ["warm"], "chain": {"version": 1, "slots": [...]},
+ "target": {"lufs": -9.0, "true_peak_ceiling": -1.0, "crest_db": 10.5, "lra_lu": 5.0,
+            "spectrum": [31 values], "band_width": [0, 100, 120, 125], "mono_freq": 110}}
+```
+
+**Factory presets (35):** 10 Electronic, 5 Hip-Hop, 4 Pop, 4 Rock, 4 Metal and
+8 Other. They're generated from one table in
+`mastermind/presets/factory_specs.py`, whose module docstring documents where the
+numbers come from (genre loudness norms, the shape of commercial-music
+spectra, stereo conventions). Treat them as informed starting points. They
+were not measured from a reference corpus; Phase 4 learns from real references.
+
+**Adding or editing a factory preset:** add or edit a `GenreSpec` entry, then run
+`uv run python tools/build_factory_presets.py`. A test fails if the shipped
+JSON and the generator disagree, and another checks that all presets stay
+distinct.
+
+**User presets** live in `$MASTERMIND_HOME/presets` (default
+`~/.mastermind`). Favourites are stored in `favorites.json` in the same folder.
+In the GUI's **Presets** tab you can:
+
+* search by name, genre or tags
+* filter by category (or show only favourites)
+* star favourites
+* apply, save the current settings, import, export, or delete (user presets only)
+
+Imports are validated, and an imported preset never overwrites a factory one.
+
+**Apply + auto-gain:** applying a preset loads its chain into the active A/B
+slot, sets the meter target to its LUFS and overlays its spectral curve on the
+analyser. With auto-gain on, it then fits the limiter gain on a background
+thread so *this* track hits the preset loudness. The fit renders up to six 5 s
+excerpts, runs the pre-limiter part of the chain once, and uses a secant
+search. On a 90 s mix it takes about 5 s and lands within 0.2 LU of target
+for the whole file. The CLI does the same with `--preset` or `--target`.
+
+**Format versions:** `format_version` is checked on load. Older versions go
+through `presets.schema.migrate` and newer ones are rejected.
+
+## A/B comparison (Phase 3)
+
+The engine runs chain **A**, chain **B** (created as a copy of A on first use)
+and the unprocessed **Original** every block, all aligned to the largest chain
+latency. Switching between them is instant and crossfaded. Edits always go to
+the active slot, and edits still queued keep their target even if you switch
+mid-edit. **Copy A→B / B→A** duplicates settings.
+
+**Match loudness** measures each path's recent gated loudness (6 s, BS.1770)
+and turns the monitored path down to the quietest one, slewing at most
+12 dB/s. The toolbar shows each path's LUFS and the applied monitor gain. This
+gain affects *monitoring only*: the meters show the real output and exports
+never include it.
 
 ## Adding a module
 

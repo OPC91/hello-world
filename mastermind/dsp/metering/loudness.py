@@ -84,17 +84,20 @@ def _db(x: float) -> float:
 class LoudnessMeter:
     """Streaming M / S / I / LRA / true-peak / crest meter for stereo blocks."""
 
-    def __init__(self, sample_rate: float, channels: int = 2):
+    def __init__(self, sample_rate: float, channels: int = 2, true_peak: bool = True):
         self.sample_rate = sample_rate
         self.channels = channels
         self.hop = int(round(HOP_S * sample_rate))
         self._kw = KWeighting(sample_rate, channels)
-        self._tp = TruePeakDetector(channels)
+        # True-peak detection is the most expensive part; loudness-only meters
+        # (e.g. A/B loudness matching) can skip it.
+        self._tp = TruePeakDetector(channels) if true_peak else None
         self.reset()
 
     def reset(self) -> None:
         self._kw.reset()
-        self._tp.reset()
+        if self._tp is not None:
+            self._tp.reset()
         self._acc_z = 0.0  # K-weighted energy in current hop (summed over channels)
         self._acc_sq = 0.0  # unweighted energy (mean over channels) in current hop
         self._acc_pk = 0.0
@@ -126,8 +129,8 @@ class LoudnessMeter:
         z = np.sum(y * y, axis=0)  # channel weights are 1 for L/R
         sq = np.mean(x * x, axis=0)
         ab = np.abs(x).max(axis=0)
-        tp = self._tp.process(x)
-        self.block_true_peak = float(max(tp.max(), ab.max()))
+        tp_max = float(self._tp.process(x).max()) if self._tp is not None else 0.0
+        self.block_true_peak = float(max(tp_max, ab.max()))
         self.true_peak = max(self.true_peak, self.block_true_peak)
         self.sample_peak = max(self.sample_peak, float(ab.max()))
         self._total_sq += float(sq.sum())
@@ -170,6 +173,11 @@ class LoudnessMeter:
         if self._integrated_cache is None or self._integrated_cache[0] != n:
             self._integrated_cache = (n, gated_integrated(np.array(self.block_powers)))
         return self._integrated_cache[1]
+
+    def recent_integrated(self, seconds: float) -> float:
+        """Gated loudness of the most recent ``seconds`` (sliding long-term loudness)."""
+        n = max(1, int(round(seconds / HOP_S)))
+        return gated_integrated(np.array(self.block_powers[-n:]))
 
     @property
     def lra(self) -> float:

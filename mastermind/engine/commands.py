@@ -60,18 +60,28 @@ Command = SetParam | SetBypass | Reorder | Call
 
 
 class CommandQueue:
+    """FIFO of ``(target, command)`` pairs.
+
+    ``target`` names which chain a command was meant for (``"A"``/``"B"`` in
+    A/B mode), resolved when it was *posted*, so switching A/B while edits are
+    still queued cannot redirect them to the other chain.
+    """
+
     def __init__(self) -> None:
-        self._q: queue.SimpleQueue[Command] = queue.SimpleQueue()
+        self._q: queue.SimpleQueue[tuple[str | None, Command]] = queue.SimpleQueue()
 
-    def post(self, cmd: Command) -> None:
-        self._q.put(cmd)
+    def post(self, cmd: Command, target: str | None = None) -> None:
+        self._q.put((target, cmd))
 
-    def drain_into(self, chain: MasteringChain) -> int:
+    def drain(self, apply: Callable[[str | None, Command], None]) -> int:
         n = 0
         while True:
             try:
-                cmd = self._q.get_nowait()
+                target, cmd = self._q.get_nowait()
             except queue.Empty:
                 return n
-            cmd.apply(chain)
+            apply(target, cmd)
             n += 1
+
+    def drain_into(self, chain: MasteringChain) -> int:
+        return self.drain(lambda _t, cmd: cmd.apply(chain))

@@ -42,3 +42,19 @@ def test_analyze(wav_file, capsys):
     rep = json.loads(capsys.readouterr().out)
     assert -40 < rep["integrated_lufs"] < 0
     assert 0.5 < rep["correlation"] <= 1.0
+
+
+def test_master_with_preset_hits_its_loudness(wav_file, tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("MASTERMIND_HOME", str(tmp_path / "home"))
+    out = tmp_path / "trap.wav"
+    assert main(["master", wav_file, "-o", str(out), "--preset", "hip-hop/trap", "--json", "-q"]) == 0
+    rep = json.loads(capsys.readouterr().out)
+    assert abs(rep["output"]["integrated_lufs"] - (-7.5)) < 0.5
+    assert rep["output"]["true_peak_dbtp"] <= -1.0
+
+
+def test_presets_listing(capsys, monkeypatch, tmp_path):
+    monkeypatch.setenv("MASTERMIND_HOME", str(tmp_path))
+    assert main(["presets", "--category", "Metal", "--json"]) == 0
+    ids = {p["id"] for p in json.loads(capsys.readouterr().out)}
+    assert ids == {"metal/heavy-metal", "metal/metalcore", "metal/djent", "metal/black-metal"}

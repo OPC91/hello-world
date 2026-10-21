@@ -5,6 +5,9 @@ Examples::
     mastermind-cli master mix.wav -o master.wav --bits 24 --ceiling -1 --gain 6
     mastermind-cli master mix.wav -o master.wav --chain my_chain.json
     mastermind-cli chain-template > my_chain.json
+    mastermind-cli master mix.wav --preset hip-hop/trap          # auto-gain to the preset's LUFS
+    mastermind-cli master mix.wav --target Spotify               # default chain, fit to -14 LUFS
+    mastermind-cli presets --search house
     mastermind-cli analyze master.wav --json
 """
 
@@ -21,6 +24,8 @@ from mastermind.dsp.metering.targets import LOUDNESS_TARGETS
 from mastermind.engine.offline import render_to_file
 from mastermind.io.audio_file import load_audio
 from mastermind.io.export import BIT_DEPTHS
+from mastermind.matching.loudness_fit import fit_limiter_drive
+from mastermind.presets.store import PresetLibrary
 from mastermind.report import analyse, format_report
 
 
@@ -32,11 +37,29 @@ def _load_chain(path: str | None) -> MasteringChain:
 
 def cmd_master(args: argparse.Namespace) -> int:
     audio = load_audio(args.input)
-    chain = _load_chain(args.chain)
+    preset = None
+    if args.preset:
+        if args.chain:
+            raise SystemExit("use either --chain or --preset, not both")
+        preset = PresetLibrary().get(args.preset)
+        chain = preset.build_chain()
+        if args.target is None and args.target_lufs is None:
+            args.target_lufs = preset.target.lufs
+    else:
+        chain = _load_chain(args.chain)
     if args.ceiling is not None:
         chain.set_param("limiter", "ceiling_db", args.ceiling)
     if args.gain is not None:
         chain.set_param("limiter", "drive_db", args.gain)
+    target = _target(args)
+    if target is not None and args.gain is None and not args.no_auto_gain:
+        fit = fit_limiter_drive(chain, audio.samples, audio.sample_rate, target)
+        chain.set_param("limiter", "drive_db", fit.drive_db)
+        if not args.quiet:
+            status = "" if fit.converged else " (closest reachable)"
+            print(
+                f"  auto-gain: limiter {fit.drive_db:+.1f} dB -> ~{fit.achieved_lufs:.1f} LUFS{status}", file=sys.stderr
+            )
     out = Path(args.output) if args.output else Path(args.input).with_name(Path(args.input).stem + "_master.wav")
 
     t0 = time.perf_counter()
@@ -56,7 +79,6 @@ def cmd_master(args: argparse.Namespace) -> int:
 
     before = analyse(audio.samples, audio.sample_rate)
     after = analyse(y, audio.sample_rate)
-    target = _target(args)
     ceiling = chain.find("limiter").get_param("ceiling_db")
     if args.json:
         print(json.dumps({"input": before.summary(), "output": after.summary(), "file": str(out)}, indent=2))
@@ -85,6 +107,18 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_presets(args: argparse.Namespace) -> int:
+    lib = PresetLibrary()
+    found = lib.search(args.search or "", args.category)
+    if args.json:
+        print(json.dumps([{"id": p.id, "name": p.name, "category": p.category, "lufs": p.target.lufs} for p in found]))
+        return 0
+    for p in found:
+        star = "*" if lib.is_favorite(p.id) else " "
+        print(f"{star} {p.id:32s} {p.category:11s} {p.target.lufs:6.1f} LUFS  {p.description}")
+    return 0
+
+
 def cmd_chain_template(args: argparse.Namespace) -> int:
     print(json.dumps(MasteringChain.default().to_dict(), indent=2))
     return 0
@@ -104,6 +138,8 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("input")
     m.add_argument("-o", "--output")
     m.add_argument("--chain", help="chain JSON (see chain-template)")
+    m.add_argument("--preset", help="preset id (see `presets`); sets the loudness target too")
+    m.add_argument("--no-auto-gain", action="store_true", help="don't fit the limiter gain to the target")
     m.add_argument("--bits", choices=BIT_DEPTHS, default="24")
     m.add_argument("--no-dither", action="store_true")
     m.add_argument("--ceiling", type=float, help="limiter ceiling in dBTP")
@@ -118,6 +154,12 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--json", action="store_true")
     _add_target_args(a)
     a.set_defaults(func=cmd_analyze)
+
+    pr = sub.add_parser("presets", help="list / search presets")
+    pr.add_argument("--search")
+    pr.add_argument("--category")
+    pr.add_argument("--json", action="store_true")
+    pr.set_defaults(func=cmd_presets)
 
     t = sub.add_parser("chain-template", help="print the default chain as JSON")
     t.set_defaults(func=cmd_chain_template)

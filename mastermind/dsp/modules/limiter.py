@@ -90,7 +90,7 @@ class TruePeakLimiter(Processor):
     @classmethod
     def param_specs(cls) -> list[ParamSpec]:
         return [
-            ParamSpec("drive_db", "Gain", 0.0, 0.0, 24.0, "dB", smooth=True),
+            ParamSpec("drive_db", "Gain", 0.0, -12.0, 24.0, "dB", smooth=True),
             ParamSpec("ceiling_db", "Ceiling", -1.0, -6.0, 0.0, "dBTP"),
             ParamSpec("release_ms", "Release", 80.0, 1.0, 1000.0, "ms", log=True),
             ParamSpec("lookahead_ms", "Lookahead", 1.5, 0.5, 5.0, "ms", structural=True),

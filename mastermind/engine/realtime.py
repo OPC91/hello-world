@@ -4,15 +4,29 @@ Threads::
 
     GUI thread --commands--> [CommandQueue] --+
                                               v
-    engine thread:  source -> chain.process -> AudioRingBuffer -> PortAudio callback
+    engine thread:  source -> chain(s).process -> AudioRingBuffer -> PortAudio callback
                                     |
                                     +--> SnapshotQueue (meters) --> GUI timer (~30 fps)
 
 Running the DSP on a dedicated engine thread rather than inside the PortAudio
 callback keeps the callback trivial (a memcpy), so GIL contention from the GUI
 cannot cause dropouts; the cost is ``prebuffer`` worth of added control
-latency. The chain object and the code path are identical to offline
+latency. The chain objects and the code path are identical to offline
 rendering.
+
+A/B comparison
+--------------
+The engine holds up to two chains, ``"A"`` and ``"B"``, plus the unprocessed
+``"orig"`` path. All of them run every block (so switching is instant and their
+state is warm) and are delay-aligned to the largest chain latency. One path is
+*monitored*: the active chain, or the original when ``monitor_original`` is set.
+Switching crossfades over one block.
+
+Loudness matching (``loudness_match``) measures each path's recent gated
+loudness (last :data:`MATCH_WINDOW_S` seconds, BS.1770) and turns the
+monitored path down to the quietest path, so comparisons aren't biased by
+"louder sounds better". The gain only affects what you hear: the output
+meters show the unmatched signal and exports never include it.
 
 If no output device is available (CI, headless containers) a :class:`NullOutput`
 consumes audio in real time instead, so the engine and meters still run.
@@ -20,15 +34,24 @@ consumes audio in real time instead, so the engine and meters still run.
 
 from __future__ import annotations
 
+import math
 import threading
 import time
+from typing import Any
 
 import numpy as np
 
 from mastermind.dsp.chain import MasteringChain
 from mastermind.dsp.metering.bank import MeterBank
+from mastermind.dsp.metering.loudness import LoudnessMeter
+from mastermind.dsp.primitives.delay import DelayLine
 from mastermind.engine.commands import Call, Command, CommandQueue
 from mastermind.engine.ringbuffer import AudioRingBuffer, SnapshotQueue
+
+MATCH_WINDOW_S = 6.0
+#: Maximum slew of the loudness-matching gain (dB per second).
+MATCH_SLEW_DB_S = 12.0
+ORIGINAL = "orig"
 
 
 class NullOutput:
@@ -85,7 +108,7 @@ def open_output(sample_rate: float, block: int, callback, prefer_device: bool = 
 
 
 class PlaybackEngine:
-    """Plays a source through a :class:`MasteringChain` with live parameter changes."""
+    """Plays a source through mastering chain(s) with live parameter changes and A/B."""
 
     def __init__(
         self,
@@ -94,7 +117,10 @@ class PlaybackEngine:
         prebuffer_blocks: int = 4,
         use_device: bool = True,
     ):
-        self.chain = chain or MasteringChain.default()
+        self.chains: dict[str, MasteringChain] = {"A": chain or MasteringChain.default()}
+        self.active = "A"
+        self.monitor_original = False
+        self.loudness_match = True
         self.block_size = block_size
         self.commands = CommandQueue()
         self.meters = SnapshotQueue()
@@ -113,6 +139,59 @@ class PlaybackEngine:
         self.meters_in: MeterBank | None = None
         self.meters_out: MeterBank | None = None
         self._reset_meters = False
+        self._latency = 0
+        self._delays: dict[str, DelayLine] = {}
+        self._path_meters: dict[str, LoudnessMeter] = {}
+        self._gain_db = 0.0
+        self._last_sel: str | None = None
+        self.path_loudness: dict[str, float] = {}
+        self.last_error: str | None = None
+
+    # ---- chains / A-B (callable from the GUI thread) --------------------
+    @property
+    def chain(self) -> MasteringChain:
+        """The chain currently being edited and (unless monitoring the original) heard."""
+        return self.chains[self.active]
+
+    @property
+    def ab_enabled(self) -> bool:
+        return "B" in self.chains
+
+    def _prepared(self, chain: MasteringChain) -> MasteringChain:
+        if self._sr > 0:
+            chain.prepare(self._sr, self.block_size)
+        return chain
+
+    def replace_chain(self, chain: MasteringChain, key: str | None = None) -> None:
+        """Swap in a new chain (e.g. a preset) for ``key`` (default: active)."""
+        self.chains[key or self.active] = self._prepared(chain)
+
+    def enable_b(self) -> None:
+        """Create chain B as a copy of A (no-op if it exists)."""
+        if not self.ab_enabled:
+            self.chains["B"] = self._prepared(self.snapshot_chain("A"))
+
+    def disable_b(self) -> None:
+        self.active = "A"
+        self.chains.pop("B", None)
+
+    def copy_chain(self, src: str, dst: str) -> None:
+        self.chains[dst] = self._prepared(self.snapshot_chain(src))
+
+    def set_active(self, key: str) -> None:
+        if key not in self.chains:
+            raise KeyError(key)
+        self.active = key
+
+    def ab_state(self) -> dict[str, Any]:
+        return {
+            "active": self.active,
+            "monitor": ORIGINAL if self.monitor_original else self.active,
+            "paths": [*self.chains, ORIGINAL],
+            "loudness": dict(self.path_loudness),
+            "match_gain_db": self._gain_db,
+            "loudness_match": self.loudness_match,
+        }
 
     # ---- source / transport (callable from any thread) ----------------
     def load(self, audio: np.ndarray, sample_rate: float) -> None:
@@ -120,9 +199,13 @@ class PlaybackEngine:
         self._source = np.asarray(audio, dtype=np.float64)
         self._sr = float(sample_rate)
         self._pos = 0
-        self.chain.prepare(self._sr, self.block_size)
+        for c in self.chains.values():
+            c.prepare(self._sr, self.block_size)
         self.meters_in = MeterBank(self._sr)
         self.meters_out = MeterBank(self._sr)
+        self._delays.clear()
+        self._path_meters.clear()
+        self._gain_db = 0.0
         self.start_engine()
 
     @property
@@ -150,27 +233,29 @@ class PlaybackEngine:
     def position(self) -> int:
         """Approximate source frame currently audible."""
         buffered = self._ring.available_read()
-        return max(0, self._pos - buffered - self.chain.latency_samples)
+        return max(0, self._pos - buffered - self._latency)
 
     def reset_meters(self) -> None:
         """Clear integrated loudness, LRA, peak holds etc. (applied on the engine thread)."""
         self._reset_meters = True
 
     def post(self, cmd: Command) -> None:
-        """Apply a chain edit: queued for the engine thread if it runs, else immediately."""
+        """Apply an edit to the active chain: queued if the engine runs, else immediate."""
+        key = self.active
         if self._run:
-            self.commands.post(cmd)
+            self.commands.post(cmd, key)
         else:
-            cmd.apply(self.chain)
+            cmd.apply(self.chains[key])
 
-    def snapshot_chain(self, timeout: float = 1.0) -> MasteringChain:
-        """An independent copy of the chain including all edits posted so far.
+    def snapshot_chain(self, key: str | None = None, timeout: float = 1.0) -> MasteringChain:
+        """An independent copy of a chain (default: active) including all edits posted so far.
 
         The copy is taken on the engine thread (after draining pending commands)
         so it never observes a half-applied edit.
         """
+        key = key or self.active
         if not self._run:
-            return self.chain.copy()
+            return self.chains[key].copy()
         box: list[MasteringChain] = []
         done = threading.Event()
 
@@ -178,7 +263,7 @@ class PlaybackEngine:
             box.append(chain.copy())
             done.set()
 
-        self.commands.post(Call(take))
+        self.commands.post(Call(take), key)
         if not done.wait(timeout):
             raise TimeoutError("engine thread did not respond")
         return box[0]
@@ -219,11 +304,71 @@ class PlaybackEngine:
             block = np.concatenate([block, np.zeros((2, n - block.shape[-1]))], axis=-1)
         return block
 
+    def _apply(self, target: str | None, cmd: Command) -> None:
+        chain = self.chains.get(target or self.active)
+        if chain is not None:  # B may have been removed since the edit was posted
+            cmd.apply(chain)
+
+    def _aligned(self, key: str, x: np.ndarray, delay: int) -> np.ndarray:
+        d = self._delays.get(key)
+        if d is None or d.delay != delay:
+            d = self._delays[key] = DelayLine(delay)
+        return d.process(x)
+
+    def _match_gain(self, sel: str, n: int) -> np.ndarray | float:
+        """Per-sample monitoring gain (linear) for path ``sel``."""
+        target = 0.0
+        if self.loudness_match:
+            loud = {k: v for k, v in self.path_loudness.items() if math.isfinite(v)}
+            if sel in loud and len(loud) > 1:
+                target = min(loud.values()) - loud[sel]
+        start = self._gain_db
+        step = MATCH_SLEW_DB_S * n / self._sr
+        self._gain_db = start + float(np.clip(target - start, -step, step))
+        if self._gain_db == start:
+            return 10.0 ** (start / 20.0)
+        return 10.0 ** (np.linspace(start, self._gain_db, n) / 20.0)
+
+    def _process(self, x: np.ndarray, playing: bool) -> tuple[np.ndarray, np.ndarray]:
+        """Run every path; return (monitored output with matching gain, unmatched output)."""
+        # Snapshot the chain set and monitor choice once per block: the GUI thread
+        # may add/remove B or switch paths at any time.
+        paths = list(self.chains.items())
+        active = self.active if self.active in dict(paths) else paths[0][0]
+        sel = ORIGINAL if self.monitor_original else active
+        outs = {k: c.process(x) for k, c in paths}
+        lat = {k: c.latency_samples for k, c in paths}
+        self._latency = max(lat.values())
+        aligned = {k: self._aligned(k, outs[k], self._latency - lat[k]) for k in outs}
+        aligned[ORIGINAL] = self._aligned(ORIGINAL, x, self._latency)
+        for k in list(self._delays):
+            if k not in aligned:
+                del self._delays[k]
+
+        if playing:  # path loudness is shown in the A/B readout even when not matching
+            for k, a in aligned.items():
+                m = self._path_meters.get(k)
+                if m is None:
+                    m = self._path_meters[k] = LoudnessMeter(self._sr, true_peak=False)
+                m.process(a)
+            self.path_loudness = {k: self._path_meters[k].recent_integrated(MATCH_WINDOW_S) for k in aligned}
+        n = x.shape[-1]
+        prev_gain = 10.0 ** (self._gain_db / 20.0)
+        g = self._match_gain(sel, n)
+        y = aligned[sel]
+        heard = y * g
+        last = self._last_sel
+        if last is not None and last != sel and last in aligned:
+            fade = np.linspace(0.0, 1.0, n)
+            heard = aligned[last] * prev_gain * (1.0 - fade) + heard * fade
+        self._last_sel = sel
+        return heard, y
+
     def _work(self) -> None:
         while self._run:
             # Commands are drained every iteration (not only when audio is due) so
             # snapshot requests are answered promptly even with a full buffer.
-            self.commands.drain_into(self.chain)
+            self.commands.drain(self._apply)
             if self._seek_to is not None:
                 self._pos, self._seek_to = self._seek_to, None
                 self._ring.request_flush()
@@ -236,8 +381,12 @@ class PlaybackEngine:
                 self.meters_out.reset()
             was_playing = self._playing
             x = self._next_source_block()
-            y = self.chain.process(x)
-            self._ring.write(y.astype(np.float32))
+            try:
+                heard, y = self._process(x, was_playing)
+            except Exception as e:  # never let one bad block kill playback
+                self.last_error = repr(e)
+                heard = y = np.zeros_like(x)
+            self._ring.write(heard.astype(np.float32))
             # Meters only run while audio is playing, so pauses don't count as silence.
             if was_playing:
                 self.meters_in.process(x)
@@ -249,6 +398,7 @@ class PlaybackEngine:
                         "in": self.meters_in.snapshot(),
                         "out": self.meters_out.snapshot(),
                         "gr": self.chain.meter_taps(),
+                        "ab": self.ab_state(),
                     }
                 )
 

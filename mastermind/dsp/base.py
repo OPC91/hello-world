@@ -242,7 +242,10 @@ class ProcessorRegistry:
         return cls
 
     def create(self, data: dict[str, Any]) -> Processor:
-        cls = self.classes[data["type"]]
+        try:
+            cls = self.classes[data["type"]]
+        except KeyError:
+            raise ValueError(f"unknown processor type {data.get('type')!r}") from None
         return cls(**data.get("params", {}))
 
 

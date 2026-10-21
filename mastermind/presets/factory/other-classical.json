@@ -1,0 +1,228 @@
+{
+  "format_version": 1,
+  "id": "other/classical",
+  "name": "Classical",
+  "category": "Other",
+  "description": "Transparent, full dynamic range.",
+  "notes": "Minimal processing: linear-phase EQ, no compression, safety limiting only.",
+  "tags": [
+    "acoustic",
+    "dynamic",
+    "transparent"
+  ],
+  "author": "MasterMind factory",
+  "factory": true,
+  "chain": {
+    "version": 1,
+    "slots": [
+      {
+        "type": "input_gain",
+        "params": {
+          "gain_db": 0.0,
+          "balance": 0.0
+        },
+        "bypass": false
+      },
+      {
+        "type": "eq",
+        "params": {
+          "mode": "linear",
+          "output_db": 0.0,
+          "b1_on": true,
+          "b1_type": "low_cut",
+          "b1_freq": 20.0,
+          "b1_gain": 0.0,
+          "b1_q": 0.7071,
+          "b1_target": "stereo",
+          "b2_on": false,
+          "b2_type": "low_shelf",
+          "b2_freq": 60.0,
+          "b2_gain": 0.0,
+          "b2_q": 0.7071,
+          "b2_target": "stereo",
+          "b3_on": true,
+          "b3_type": "bell",
+          "b3_freq": 130.0,
+          "b3_gain": 0.2,
+          "b3_q": 0.9,
+          "b3_target": "stereo",
+          "b4_on": true,
+          "b4_type": "bell",
+          "b4_freq": 400.0,
+          "b4_gain": 0.2,
+          "b4_q": 0.8,
+          "b4_target": "stereo",
+          "b5_on": true,
+          "b5_type": "bell",
+          "b5_freq": 3500.0,
+          "b5_gain": -0.2,
+          "b5_q": 0.8,
+          "b5_target": "stereo",
+          "b6_on": true,
+          "b6_type": "high_shelf",
+          "b6_freq": 11000.0,
+          "b6_gain": 0.2,
+          "b6_q": 0.7071,
+          "b6_target": "stereo",
+          "b7_on": false,
+          "b7_type": "high_cut",
+          "b7_freq": 20000.0,
+          "b7_gain": 0.0,
+          "b7_q": 0.7071,
+          "b7_target": "stereo",
+          "b8_on": false,
+          "b8_type": "high_shelf",
+          "b8_freq": 14000.0,
+          "b8_gain": 0.0,
+          "b8_q": 0.7071,
+          "b8_target": "stereo"
+        },
+        "bypass": false
+      },
+      {
+        "type": "multiband",
+        "params": {
+          "xover1": 120.0,
+          "xover2": 1000.0,
+          "xover3": 6000.0,
+          "auto_makeup": true,
+          "mix": 100.0,
+          "output_db": 0.0,
+          "b1_threshold": 0.0,
+          "b1_ratio": 2.0,
+          "b1_attack": 10.0,
+          "b1_release": 150.0,
+          "b1_knee": 6.0,
+          "b1_makeup": 0.0,
+          "b1_bypass": false,
+          "b2_threshold": 0.0,
+          "b2_ratio": 2.0,
+          "b2_attack": 10.0,
+          "b2_release": 150.0,
+          "b2_knee": 6.0,
+          "b2_makeup": 0.0,
+          "b2_bypass": false,
+          "b3_threshold": 0.0,
+          "b3_ratio": 2.0,
+          "b3_attack": 10.0,
+          "b3_release": 150.0,
+          "b3_knee": 6.0,
+          "b3_makeup": 0.0,
+          "b3_bypass": false,
+          "b4_threshold": 0.0,
+          "b4_ratio": 2.0,
+          "b4_attack": 10.0,
+          "b4_release": 150.0,
+          "b4_knee": 6.0,
+          "b4_makeup": 0.0,
+          "b4_bypass": false
+        },
+        "bypass": true
+      },
+      {
+        "type": "saturation",
+        "params": {
+          "mode": "tape",
+          "drive_db": 0.0,
+          "asymmetry": 0.3,
+          "mix": 100.0,
+          "output_db": 0.0,
+          "oversampling": "4"
+        },
+        "bypass": true
+      },
+      {
+        "type": "imager",
+        "params": {
+          "xover1": 120.0,
+          "xover2": 1000.0,
+          "xover3": 6000.0,
+          "width_b1": 60.0,
+          "width_b2": 100.0,
+          "width_b3": 105.0,
+          "width_b4": 105.0,
+          "mono_maker": false,
+          "mono_freq": 100.0
+        },
+        "bypass": false
+      },
+      {
+        "type": "glue",
+        "params": {
+          "threshold": 0.0,
+          "ratio": 2.0,
+          "attack": 10.0,
+          "release": 200.0,
+          "knee": 3.0,
+          "sc_hpf": 0.0,
+          "makeup": 0.0,
+          "mix": 100.0
+        },
+        "bypass": true
+      },
+      {
+        "type": "limiter",
+        "params": {
+          "drive_db": -4.0,
+          "ceiling_db": -1.0,
+          "release_ms": 300.0,
+          "lookahead_ms": 1.5
+        },
+        "bypass": false
+      },
+      {
+        "type": "dither",
+        "params": {
+          "noise_shaping": false
+        },
+        "bypass": false
+      }
+    ]
+  },
+  "target": {
+    "lufs": -20.0,
+    "true_peak_ceiling": -1.0,
+    "crest_db": 21.5,
+    "lra_lu": 15.0,
+    "spectrum": [
+      -3.59,
+      -0.32,
+      2.68,
+      5.69,
+      5.92,
+      5.99,
+      6.13,
+      6.31,
+      5.6,
+      4.75,
+      3.84,
+      2.94,
+      2.09,
+      1.23,
+      0.31,
+      -0.66,
+      -1.67,
+      -2.66,
+      -3.65,
+      -4.64,
+      -5.64,
+      -6.63,
+      -7.57,
+      -8.43,
+      -9.2,
+      -9.92,
+      -10.61,
+      -11.29,
+      -12.0,
+      -12.75,
+      -13.77
+    ],
+    "band_width": [
+      60.0,
+      100.0,
+      105.0,
+      105.0
+    ],
+    "mono_freq": 0.0
+  }
+}

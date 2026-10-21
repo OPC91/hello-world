@@ -1,0 +1,227 @@
+{
+  "format_version": 1,
+  "id": "hip-hop/boom-bap",
+  "name": "Boom Bap",
+  "category": "Hip-Hop",
+  "description": "Punchy sampled drums, warm mids, slightly dark top.",
+  "notes": "Kick/snare punch over vinyl-era warmth; a 16 kHz roll-off mimics sampler bandwidth.",
+  "tags": [
+    "vintage",
+    "warm"
+  ],
+  "author": "MasterMind factory",
+  "factory": true,
+  "chain": {
+    "version": 1,
+    "slots": [
+      {
+        "type": "input_gain",
+        "params": {
+          "gain_db": 0.0,
+          "balance": 0.0
+        },
+        "bypass": false
+      },
+      {
+        "type": "eq",
+        "params": {
+          "mode": "minimum",
+          "output_db": 0.0,
+          "b1_on": true,
+          "b1_type": "low_cut",
+          "b1_freq": 28.0,
+          "b1_gain": 0.0,
+          "b1_q": 0.7071,
+          "b1_target": "stereo",
+          "b2_on": true,
+          "b2_type": "low_shelf",
+          "b2_freq": 60.0,
+          "b2_gain": 0.8,
+          "b2_q": 0.7071,
+          "b2_target": "stereo",
+          "b3_on": true,
+          "b3_type": "bell",
+          "b3_freq": 130.0,
+          "b3_gain": 1.2,
+          "b3_q": 0.9,
+          "b3_target": "stereo",
+          "b4_on": true,
+          "b4_type": "bell",
+          "b4_freq": 400.0,
+          "b4_gain": 0.2,
+          "b4_q": 0.8,
+          "b4_target": "stereo",
+          "b5_on": true,
+          "b5_type": "bell",
+          "b5_freq": 3500.0,
+          "b5_gain": 0.2,
+          "b5_q": 0.8,
+          "b5_target": "stereo",
+          "b6_on": true,
+          "b6_type": "high_shelf",
+          "b6_freq": 11000.0,
+          "b6_gain": -0.4,
+          "b6_q": 0.7071,
+          "b6_target": "stereo",
+          "b7_on": true,
+          "b7_type": "high_cut",
+          "b7_freq": 16000.0,
+          "b7_gain": 0.0,
+          "b7_q": 0.7071,
+          "b7_target": "stereo",
+          "b8_on": false,
+          "b8_type": "high_shelf",
+          "b8_freq": 14000.0,
+          "b8_gain": 0.0,
+          "b8_q": 0.7071,
+          "b8_target": "stereo"
+        },
+        "bypass": false
+      },
+      {
+        "type": "multiband",
+        "params": {
+          "xover1": 120.0,
+          "xover2": 1000.0,
+          "xover3": 6000.0,
+          "auto_makeup": true,
+          "mix": 100.0,
+          "output_db": 0.0,
+          "b1_threshold": -20.0,
+          "b1_ratio": 2.5,
+          "b1_attack": 20.0,
+          "b1_release": 120.0,
+          "b1_knee": 6.0,
+          "b1_makeup": 0.0,
+          "b1_bypass": false,
+          "b2_threshold": -24.0,
+          "b2_ratio": 2.5,
+          "b2_attack": 20.0,
+          "b2_release": 120.0,
+          "b2_knee": 6.0,
+          "b2_makeup": 0.0,
+          "b2_bypass": false,
+          "b3_threshold": -26.0,
+          "b3_ratio": 2.5,
+          "b3_attack": 10.0,
+          "b3_release": 100.0,
+          "b3_knee": 6.0,
+          "b3_makeup": 0.0,
+          "b3_bypass": false,
+          "b4_threshold": -28.0,
+          "b4_ratio": 2.5,
+          "b4_attack": 5.0,
+          "b4_release": 80.0,
+          "b4_knee": 6.0,
+          "b4_makeup": 0.0,
+          "b4_bypass": false
+        },
+        "bypass": false
+      },
+      {
+        "type": "saturation",
+        "params": {
+          "mode": "tape",
+          "drive_db": 4.0,
+          "asymmetry": 0.3,
+          "mix": 100.0,
+          "output_db": -1.0,
+          "oversampling": "4"
+        },
+        "bypass": false
+      },
+      {
+        "type": "imager",
+        "params": {
+          "xover1": 120.0,
+          "xover2": 1000.0,
+          "xover3": 6000.0,
+          "width_b1": 0.0,
+          "width_b2": 85.0,
+          "width_b3": 100.0,
+          "width_b4": 105.0,
+          "mono_maker": true,
+          "mono_freq": 120.0
+        },
+        "bypass": false
+      },
+      {
+        "type": "glue",
+        "params": {
+          "threshold": -18.0,
+          "ratio": 4.0,
+          "attack": 30.0,
+          "release": 100.0,
+          "knee": 3.0,
+          "sc_hpf": 80.0,
+          "makeup": 0.0,
+          "mix": 100.0
+        },
+        "bypass": false
+      },
+      {
+        "type": "limiter",
+        "params": {
+          "drive_db": 6.5,
+          "ceiling_db": -1.0,
+          "release_ms": 70.0,
+          "lookahead_ms": 1.5
+        },
+        "bypass": false
+      },
+      {
+        "type": "dither",
+        "params": {
+          "noise_shaping": false
+        },
+        "bypass": false
+      }
+    ]
+  },
+  "target": {
+    "lufs": -9.5,
+    "true_peak_ceiling": -1.0,
+    "crest_db": 11.0,
+    "lra_lu": 5.0,
+    "spectrum": [
+      -11.08,
+      -3.7,
+      1.95,
+      5.51,
+      6.1,
+      6.34,
+      6.65,
+      7.09,
+      6.57,
+      5.4,
+      3.77,
+      2.22,
+      1.03,
+      0.11,
+      -0.73,
+      -1.58,
+      -2.43,
+      -3.24,
+      -3.99,
+      -4.67,
+      -5.3,
+      -5.92,
+      -6.59,
+      -7.34,
+      -8.18,
+      -9.1,
+      -10.06,
+      -11.08,
+      -12.08,
+      -13.02,
+      -19.86
+    ],
+    "band_width": [
+      0.0,
+      85.0,
+      100.0,
+      105.0
+    ],
+    "mono_freq": 120.0
+  }
+}
