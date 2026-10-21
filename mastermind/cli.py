@@ -1,0 +1,114 @@
+"""``mastermind-cli``: batch mastering and analysis from the command line.
+
+Examples::
+
+    mastermind-cli master mix.wav -o master.wav --bits 24 --ceiling -1 --gain 6
+    mastermind-cli master mix.wav -o master.wav --chain my_chain.json
+    mastermind-cli chain-template > my_chain.json
+    mastermind-cli analyze master.wav --json
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import time
+from pathlib import Path
+
+from mastermind.dsp.chain import MasteringChain
+from mastermind.engine.offline import render_to_file
+from mastermind.io.audio_file import load_audio
+from mastermind.io.export import BIT_DEPTHS
+from mastermind.report import analyse
+
+
+def _load_chain(path: str | None) -> MasteringChain:
+    if path is None:
+        return MasteringChain.default()
+    return MasteringChain.from_dict(json.loads(Path(path).read_text()))
+
+
+def cmd_master(args: argparse.Namespace) -> int:
+    audio = load_audio(args.input)
+    chain = _load_chain(args.chain)
+    if args.ceiling is not None:
+        chain.set_param("limiter", "ceiling_db", args.ceiling)
+    if args.gain is not None:
+        chain.set_param("limiter", "drive_db", args.gain)
+    out = Path(args.output) if args.output else Path(args.input).with_name(Path(args.input).stem + "_master.wav")
+
+    t0 = time.perf_counter()
+    last = [-1]
+
+    def progress(frac: float) -> None:
+        pct = int(frac * 100)
+        if not args.quiet and pct // 10 != last[0]:
+            last[0] = pct // 10
+            print(f"\r  rendering... {pct:3d}%", end="", file=sys.stderr, flush=True)
+
+    y = render_to_file(
+        chain, audio.samples, audio.sample_rate, out, args.bits, dither=not args.no_dither, progress=progress
+    )
+    if not args.quiet:
+        print(f"\r  rendered in {time.perf_counter() - t0:.1f}s -> {out}", file=sys.stderr)
+
+    before = analyse(audio.samples, audio.sample_rate)
+    after = analyse(y, audio.sample_rate)
+    if args.json:
+        print(json.dumps({"input": before.as_dict(), "output": after.as_dict(), "file": str(out)}, indent=2))
+    else:
+        print(before.format(f"Input: {args.input}"))
+        print(after.format(f"Output: {out}"))
+    return 0
+
+
+def cmd_analyze(args: argparse.Namespace) -> int:
+    for path in args.inputs:
+        audio = load_audio(path)
+        rep = analyse(audio.samples, audio.sample_rate)
+        if args.json:
+            print(json.dumps({"file": path, **rep.as_dict()}))
+        else:
+            print(rep.format(path))
+    return 0
+
+
+def cmd_chain_template(args: argparse.Namespace) -> int:
+    print(json.dumps(MasteringChain.default().to_dict(), indent=2))
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="mastermind-cli", description="MasterMind batch mastering")
+    sub = p.add_subparsers(dest="command", required=True)
+
+    m = sub.add_parser("master", help="master a file through the chain")
+    m.add_argument("input")
+    m.add_argument("-o", "--output")
+    m.add_argument("--chain", help="chain JSON (see chain-template)")
+    m.add_argument("--bits", choices=BIT_DEPTHS, default="24")
+    m.add_argument("--no-dither", action="store_true")
+    m.add_argument("--ceiling", type=float, help="limiter ceiling in dBTP")
+    m.add_argument("--gain", type=float, help="limiter input gain in dB")
+    m.add_argument("--json", action="store_true", help="print the report as JSON")
+    m.add_argument("-q", "--quiet", action="store_true")
+    m.set_defaults(func=cmd_master)
+
+    a = sub.add_parser("analyze", help="print a loudness/peak/correlation report")
+    a.add_argument("inputs", nargs="+")
+    a.add_argument("--json", action="store_true")
+    a.set_defaults(func=cmd_analyze)
+
+    t = sub.add_parser("chain-template", help="print the default chain as JSON")
+    t.set_defaults(func=cmd_chain_template)
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

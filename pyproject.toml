@@ -1,0 +1,55 @@
+[project]
+name = "mastermind"
+version = "0.1.0"
+description = "MasterMind - AI-assisted mastering prototype (DSP validation for a future JUCE port)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "numba>=0.59",
+    "soundfile>=0.12",
+    "librosa>=0.10",
+    "pyloudnorm>=0.1.1",
+    "pydantic>=2.5",
+    "sounddevice>=0.4.6",
+    "PySide6>=6.6",
+    "pyqtgraph>=0.13.3",
+]
+
+[project.optional-dependencies]
+ai = ["onnxruntime>=1.17"]
+train = ["torch>=2.2", "torchaudio>=2.2", "onnx>=1.15"]
+
+[project.scripts]
+mastermind = "mastermind.gui.app:main"
+mastermind-cli = "mastermind.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-qt>=4.3",
+    "pytest-cov>=4.1",
+    "ruff>=0.4",
+    "pedalboard>=0.9",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mastermind"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = ["slow: long-running tests", "gui: needs Qt (runs offscreen)"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "NPY"]
+ignore = ["E741"]
