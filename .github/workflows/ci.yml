@@ -54,6 +54,16 @@ jobs:
       - name: Build
         run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel 4
 
+      - name: Check Windows plugin has no runtime DLL dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dumpbin = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\*\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Select-Object -First 1
+          $dll = Get-ChildItem "build\Benchmark_artefacts\${{ env.BUILD_TYPE }}\VST3\Benchmark.vst3" -Recurse -File -Filter "Benchmark.vst3" | Select-Object -First 1
+          $deps = & $dumpbin.FullName /dependents $dll.FullName
+          $deps
+          if ($deps -match "VCRUNTIME|MSVCP|ucrtbase") { throw "Plugin depends on the Visual C++ runtime DLLs; it must be statically linked" }
+
       - name: Unit tests
         run: ctest --test-dir build -C ${{ env.BUILD_TYPE }} --output-on-failure
 

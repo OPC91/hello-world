@@ -13,6 +13,10 @@ if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
 endif()
 set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum macOS version")
 
+# Windows: link the C++ runtime statically so the plugin loads without the
+# Visual C++ Redistributable being installed (hosts skip plugins that fail to load).
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 option(BENCHMARK_BUILD_TESTS "Build the unit tests" ON)
 option(BENCHMARK_COPY_PLUGIN_AFTER_BUILD "Install the plugin into the user plugin folder after building" OFF)
 
