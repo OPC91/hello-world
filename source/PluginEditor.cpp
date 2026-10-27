@@ -1,0 +1,242 @@
+#include "PluginEditor.h"
+#include "Parameters.h"
+
+namespace benchmark
+{
+    BenchmarkEditor::BenchmarkEditor (BenchmarkProcessor& p)
+        : AudioProcessorEditor (p),
+          processor (p),
+          abToggle (*p.getValueTreeState().getParameter (ParamIDs::listenRef)),
+          referenceList (p.getReferenceLibrary()),
+          loudness (p),
+          waveform (p),
+          analysis (p),
+          bandSolo (p)
+    {
+        setLookAndFeel (&theme);
+
+        for (auto* c : std::initializer_list<juce::Component*> { &abToggle, &referenceList, &waveform, &loudness, &analysis, &bandSolo })
+            addAndMakeVisible (c);
+
+        setWantsKeyboardFocus (true);
+        addMouseListener (this, true); // clicks anywhere give the editor key focus for the space bar
+
+        auto& library = processor.getReferenceLibrary();
+        library.addChangeListener (this);
+        library.onMessage = [safeThis = juce::Component::SafePointer<BenchmarkEditor> (this)] (const juce::String& text)
+        {
+            if (safeThis != nullptr)
+                safeThis->showMessage (text);
+        };
+        updateReferenceName();
+
+        waveform.onMessage = [this] (const juce::String& text) { showMessage (text); };
+        analysis.onMessage = [this] (const juce::String& text) { showMessage (text); };
+
+        setResizable (true, true);
+        if (auto* sizeLimits = getConstrainer())
+        {
+            sizeLimits->setMinimumSize (ui::baseWidth * 4 / 5, ui::baseHeight * 4 / 5);
+            sizeLimits->setMaximumSize (ui::baseWidth * 5 / 2, ui::baseHeight * 5 / 2);
+        }
+
+        const auto saved = processor.getSavedEditorSize();
+        if (saved.x > 0 && saved.y > 0)
+            setSize (saved.x, saved.y);
+        else
+            setSize (ui::baseWidth, ui::baseHeight);
+    }
+
+    BenchmarkEditor::~BenchmarkEditor()
+    {
+        auto& library = processor.getReferenceLibrary();
+        library.removeChangeListener (this);
+        library.onMessage = nullptr;
+        setLookAndFeel (nullptr);
+    }
+
+    //==============================================================================
+    void BenchmarkEditor::paint (juce::Graphics& g)
+    {
+        ui::paintBackground (g, getLocalBounds(), theme);
+
+        auto header = headerArea.toFloat().reduced (theme.px (18.0f), 0.0f);
+
+        // Wordmark in the Nil2Max style: "BENCH" in white, "MARK" in the brand gradient, then "by EXNILO".
+        const auto wordFont = theme.font (21.0f, true).withExtraKerningFactor (0.06f);
+        const auto benchWidth = juce::GlyphArrangement::getStringWidth (wordFont, "BENCH");
+        const auto markWidth = juce::GlyphArrangement::getStringWidth (wordFont, "MARK");
+
+        g.setFont (wordFont);
+        g.setColour (ui::Colours::textPrimary);
+        g.drawText ("BENCH", header.withWidth (benchWidth + 2.0f), juce::Justification::centredLeft, false);
+
+        const auto markArea = header.withX (header.getX() + benchWidth).withWidth (markWidth + 2.0f);
+        g.setGradientFill (juce::ColourGradient (ui::Colours::mix, markArea.getX(), 0.0f,
+                                                 ui::Colours::violet, markArea.getRight(), 0.0f, false));
+        g.drawText ("MARK", markArea, juce::Justification::centredLeft, false);
+
+        g.setColour (ui::Colours::textSecondary);
+        g.setFont (theme.font (11.5f, true));
+        g.drawText ("by EXNILO", header.withX (markArea.getRight() + theme.px (10.0f)).withTrimmedTop (theme.px (4.0f)),
+                    juce::Justification::centredLeft, false);
+
+        g.setColour (ui::Colours::textMuted);
+        g.setFont (theme.font (11.0f, true));
+        g.drawText ("v" BENCHMARK_VERSION_STRING, header, juce::Justification::centredRight);
+
+        // Shortcut hints along the bottom, as on Nil2Max.
+        g.setColour (ui::Colours::textMuted);
+        g.setFont (theme.font (11.0f));
+        g.drawText ("space: mix / reference   |   1-4: band solo, 0: off   |   drag the waveform: loop   |   right-click for more",
+                    footerArea, juce::Justification::centred, true);
+    }
+
+    void BenchmarkEditor::paintOverChildren (juce::Graphics& g)
+    {
+        if (message.isEmpty())
+            return;
+
+        // Toast at the bottom centre.
+        const auto font = theme.font (12.5f, true);
+        const auto width = juce::jmin ((float) getWidth() - theme.px (40.0f),
+                                       juce::GlyphArrangement::getStringWidth (font, message) + theme.px (32.0f));
+        const auto box = juce::Rectangle<float> (width, theme.px (34.0f))
+                             .withCentre ({ (float) getWidth() * 0.5f, (float) getHeight() - theme.px (40.0f) });
+
+        g.setColour (juce::Colours::black.withAlpha (0.35f));
+        g.fillRoundedRectangle (box.translated (0.0f, theme.px (2.0f)), theme.px (8.0f));
+        g.setColour (ui::Colours::panelRaised);
+        g.fillRoundedRectangle (box, theme.px (8.0f));
+        g.setColour (ui::Colours::reference.withAlpha (0.7f));
+        g.drawRoundedRectangle (box.reduced (0.5f), theme.px (8.0f), 1.0f);
+        g.setColour (ui::Colours::textPrimary);
+        g.setFont (font);
+        g.drawText (message, box.reduced (theme.px (12.0f), 0.0f), juce::Justification::centred, true);
+    }
+
+    void BenchmarkEditor::resized()
+    {
+        theme.setScale (juce::jmin ((float) getWidth() / (float) ui::baseWidth,
+                                    (float) getHeight() / (float) ui::baseHeight));
+
+        const auto gap = juce::roundToInt (theme.px (12.0f));
+        auto area = getLocalBounds();
+
+        headerArea = area.removeFromTop (juce::roundToInt (theme.px (52.0f)));
+        footerArea = area.removeFromBottom (juce::roundToInt (theme.px (24.0f)));
+        bandSolo.setBounds (headerArea.withSizeKeepingCentre (juce::roundToInt (theme.px (520.0f)), juce::roundToInt (theme.px (28.0f)))
+                                .translated (juce::roundToInt (theme.px (10.0f)), 0));
+        area.reduce (gap, 0);
+
+        referenceList.setBounds (area.removeFromLeft (juce::roundToInt ((float) area.getWidth() * 0.26f)));
+        area.removeFromLeft (gap);
+
+        waveform.setBounds (area.removeFromTop (juce::roundToInt ((float) area.getHeight() * 0.30f)));
+        area.removeFromTop (gap);
+
+        auto controls = area.removeFromTop (juce::roundToInt (theme.px (112.0f)));
+        abToggle.setBounds (controls.removeFromLeft (juce::roundToInt ((float) controls.getWidth() * 0.52f)));
+        controls.removeFromLeft (gap);
+        loudness.setBounds (controls);
+        area.removeFromTop (gap);
+
+        analysis.setBounds (area);
+
+        processor.setSavedEditorSize ({ getWidth(), getHeight() });
+        repaint();
+    }
+
+    //==============================================================================
+    bool BenchmarkEditor::keyPressed (const juce::KeyPress& key)
+    {
+        if (key == juce::KeyPress::spaceKey)
+        {
+            abToggle.toggle();
+            return true;
+        }
+
+        // 1-4 solo a band (again to turn it off), 0 turns band solo off.
+        if (const auto c = key.getTextCharacter(); c >= '0' && c <= '4' && ! key.getModifiers().isAnyModifierKeyDown())
+        {
+            bandSolo.toggleBand (c - '0');
+            return true;
+        }
+
+        return false;
+    }
+
+    void BenchmarkEditor::visibilityChanged()
+    {
+        if (isShowing())
+            grabKeyboardFocus();
+    }
+
+    void BenchmarkEditor::mouseDown (const juce::MouseEvent&)
+    {
+        grabKeyboardFocus();
+    }
+
+    //==============================================================================
+    bool BenchmarkEditor::isInterestedInFileDrag (const juce::StringArray& files)
+    {
+        return std::any_of (files.begin(), files.end(),
+                            [] (const juce::String& f) { return ReferenceDecoder::isSupportedFile (juce::File (f)); });
+    }
+
+    void BenchmarkEditor::fileDragEnter (const juce::StringArray&, int, int)
+    {
+        referenceList.setDropHighlight (true);
+    }
+
+    void BenchmarkEditor::fileDragExit (const juce::StringArray&)
+    {
+        referenceList.setDropHighlight (false);
+    }
+
+    void BenchmarkEditor::filesDropped (const juce::StringArray& files, int, int)
+    {
+        referenceList.setDropHighlight (false);
+
+        juce::Array<juce::File> list;
+        for (const auto& f : files)
+            list.add (juce::File (f));
+
+        processor.getReferenceLibrary().addFiles (list);
+    }
+
+    //==============================================================================
+    void BenchmarkEditor::changeListenerCallback (juce::ChangeBroadcaster*)
+    {
+        updateReferenceName();
+    }
+
+    void BenchmarkEditor::updateReferenceName()
+    {
+        const auto* active = processor.getReferenceLibrary().getActive();
+
+        juce::String name;
+        if (active != nullptr)
+            name = active->status == ReferenceLibrary::Status::loading ? active->name + " (loading)" : active->name;
+
+        abToggle.setReferenceName (name);
+    }
+
+    void BenchmarkEditor::showMessage (const juce::String& text)
+    {
+        message = text;
+        messageExpiry = juce::Time::getMillisecondCounter() + 6000;
+        startTimerHz (2);
+        repaint();
+    }
+
+    void BenchmarkEditor::timerCallback()
+    {
+        if (juce::Time::getMillisecondCounter() >= messageExpiry)
+        {
+            message.clear();
+            stopTimer();
+            repaint();
+        }
+    }
+}

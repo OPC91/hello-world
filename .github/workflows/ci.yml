@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  BUILD_TYPE: Release
+  PLUGINVAL_VERSION: v1.0.4
+  PLUGINVAL_STRICTNESS: 10
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-24.04
+            pluginval_zip: pluginval_Linux.zip
+            pluginval_bin: ./pluginval
+          - name: macOS
+            os: macos-14
+            pluginval_zip: pluginval_macOS.zip
+            pluginval_bin: ./pluginval.app/Contents/MacOS/pluginval
+          - name: Windows
+            os: windows-2022
+            pluginval_zip: pluginval_Windows.zip
+            pluginval_bin: ./pluginval.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libjack-jackd2-dev libfreetype-dev libfontconfig1-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev \
+            libxrender-dev libgl1-mesa-dev xvfb
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: deps-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake') }}
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+
+      - name: Build
+        run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel 4
+
+      - name: Check Windows plugin has no runtime DLL dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dumpbin = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\*\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Select-Object -First 1
+          $dll = Get-ChildItem "build\Benchmark_artefacts\${{ env.BUILD_TYPE }}\VST3\Benchmark.vst3" -Recurse -File -Filter "Benchmark.vst3" | Select-Object -First 1
+          $deps = & $dumpbin.FullName /dependents $dll.FullName
+          $deps
+          if ($deps -match "VCRUNTIME|MSVCP|ucrtbase") { throw "Plugin depends on the Visual C++ runtime DLLs; it must be statically linked" }
+
+      - name: Unit tests
+        run: ctest --test-dir build -C ${{ env.BUILD_TYPE }} --output-on-failure
+
+      - name: Download pluginval
+        shell: bash
+        run: |
+          curl -sSL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/${PLUGINVAL_VERSION}/${{ matrix.pluginval_zip }}"
+          unzip -q pluginval.zip
+
+      - name: Validate VST3
+        shell: bash
+        run: |
+          VST3="build/Benchmark_artefacts/${BUILD_TYPE}/VST3/Benchmark.vst3"
+          if [ "$RUNNER_OS" == "Linux" ]; then RUN="xvfb-run -a"; else RUN=""; fi
+          $RUN ${{ matrix.pluginval_bin }} --strictness-level $PLUGINVAL_STRICTNESS --validate-in-process --validate "$VST3"
+
+      - name: Validate AU
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R "build/Benchmark_artefacts/${BUILD_TYPE}/AU/Benchmark.component" ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar || true
+          auval -strict -v aufx Bnch Exnl
+          ${{ matrix.pluginval_bin }} --strictness-level $PLUGINVAL_STRICTNESS --validate-in-process \
+            --validate ~/Library/Audio/Plug-Ins/Components/Benchmark.component
+
+      - name: Upload plugins
+        uses: actions/upload-artifact@v4
+        with:
+          name: Benchmark-${{ runner.os }}
+          path: |
+            build/Benchmark_artefacts/${{ env.BUILD_TYPE }}/VST3
+            build/Benchmark_artefacts/${{ env.BUILD_TYPE }}/AU
+            build/Benchmark_artefacts/${{ env.BUILD_TYPE }}/Standalone
+          if-no-files-found: ignore
