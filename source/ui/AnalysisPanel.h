@@ -26,10 +26,17 @@ namespace benchmark::ui
         void setTab (Tab newTab);
         void setLive (bool shouldBeLive);
 
+        /** Copies the notes as plain text: the current tab only, or all three. */
+        void copyNotes (bool allSections);
+
+        /** Plain-language feedback for the editor's message area. */
+        std::function<void (const juce::String&)> onMessage;
+
         void paint (juce::Graphics&) override;
         void resized() override;
         void mouseMove (const juce::MouseEvent&) override;
         void mouseExit (const juce::MouseEvent&) override;
+        void mouseDown (const juce::MouseEvent&) override;
 
     private:
         class Selector;
@@ -52,6 +59,7 @@ namespace benchmark::ui
 
         std::unique_ptr<Selector> tabSelector, modeSelector;
         juce::TextButton resetButton { "Reset" };
+        juce::TextButton copyButton { "Copy" };
 
         Tab tab = Tab::tonal;
         bool live = false;

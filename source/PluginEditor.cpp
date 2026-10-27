@@ -31,6 +31,7 @@ namespace benchmark
         updateReferenceName();
 
         waveform.onMessage = [this] (const juce::String& text) { showMessage (text); };
+        analysis.onMessage = [this] (const juce::String& text) { showMessage (text); };
 
         setResizable (true, true);
         if (auto* sizeLimits = getConstrainer())

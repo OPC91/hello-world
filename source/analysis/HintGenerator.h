@@ -4,6 +4,8 @@
 
 #include <juce_core/juce_core.h>
 
+#include <optional>
+
 namespace benchmark::analysis
 {
     /**
@@ -28,5 +30,17 @@ namespace benchmark::analysis
         static juce::StringArray dynamics (const AnalysisSnapshot&);
 
         static juce::String formatDb (float db, bool withSign = true);
+
+        enum class Section { tonal, stereo, dynamics };
+        static constexpr int numSections = 3;
+        static juce::String sectionTitle (Section);
+        static juce::StringArray notesFor (const AnalysisSnapshot&, Section, bool live);
+
+        /**
+            Plain-text report for pasting elsewhere (session notes, chat, email).
+            Includes every section unless `only` is given.
+        */
+        static juce::String formatReport (const AnalysisSnapshot&, bool live, const juce::String& referenceName,
+                                          std::optional<Section> only = std::nullopt);
     };
 }

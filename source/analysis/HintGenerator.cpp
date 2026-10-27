@@ -156,4 +156,57 @@ namespace benchmark::analysis
 
         return hints;
     }
+
+    juce::String HintGenerator::sectionTitle (Section section)
+    {
+        switch (section)
+        {
+            case Section::tonal:    return "Tonal balance";
+            case Section::stereo:   return "Stereo width";
+            case Section::dynamics: return "Dynamics";
+        }
+        return {};
+    }
+
+    juce::StringArray HintGenerator::notesFor (const AnalysisSnapshot& s, Section section, bool live)
+    {
+        switch (section)
+        {
+            case Section::tonal:    return tonal (s, live);
+            case Section::stereo:   return stereo (s, live);
+            case Section::dynamics: return dynamics (s);
+        }
+        return {};
+    }
+
+    juce::String HintGenerator::formatReport (const AnalysisSnapshot& s, bool live, const juce::String& referenceName,
+                                              std::optional<Section> only)
+    {
+        const auto duration = [] (double seconds)
+        {
+            const auto total = juce::roundToInt (seconds);
+            return juce::String (total / 60) + ":" + juce::String (total % 60).paddedLeft ('0', 2);
+        };
+
+        juce::StringArray lines;
+        lines.add ("Benchmark comparison" + (referenceName.isNotEmpty() ? " vs \"" + referenceName + "\"" : juce::String()));
+        lines.add (juce::String (live ? "Live view" : "Average since reset") + ": mix " + duration (s.mix.secondsAnalysed)
+                   + ", reference " + duration (s.reference.secondsAnalysed) + " analysed");
+
+        for (int i = 0; i < numSections; ++i)
+        {
+            const auto section = (Section) i;
+            if (only.has_value() && *only != section)
+                continue;
+
+            lines.add ({});
+            lines.add (sectionTitle (section));
+
+            // Dynamics are always measured since reset.
+            for (const auto& note : notesFor (s, section, section == Section::dynamics ? false : live))
+                lines.add ("- " + note);
+        }
+
+        return lines.joinIntoString ("\n") + "\n";
+    }
 }

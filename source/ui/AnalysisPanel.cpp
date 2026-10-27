@@ -137,6 +137,12 @@ namespace benchmark::ui
         resetButton.onClick = [this] { processor.getAnalysis().requestReset (true, true); };
         addAndMakeVisible (resetButton);
 
+        copyButton.setWantsKeyboardFocus (false);
+        copyButton.setTooltip ("Copy all notes as text, to paste into your session notes, a chat or an email.\n"
+                               "Right-click the notes to copy just this tab.");
+        copyButton.onClick = [this] { copyNotes (true); };
+        addAndMakeVisible (copyButton);
+
         startTimerHz (15);
     }
 
@@ -179,13 +185,36 @@ namespace benchmark::ui
 
     juce::StringArray AnalysisPanel::currentHints() const
     {
-        switch (tab)
-        {
-            case Tab::tonal:    return HintGenerator::tonal (snapshot, live);
-            case Tab::stereo:   return HintGenerator::stereo (snapshot, live);
-            case Tab::dynamics: return HintGenerator::dynamics (snapshot);
-        }
-        return {};
+        return HintGenerator::notesFor (snapshot, (HintGenerator::Section) tab, live);
+    }
+
+    void AnalysisPanel::copyNotes (bool allSections)
+    {
+        const auto* active = processor.getReferenceLibrary().getActive();
+        const auto text = HintGenerator::formatReport (snapshot, live, active != nullptr ? active->name : juce::String(),
+                                                       allSections ? std::nullopt
+                                                                   : std::optional<HintGenerator::Section> ((HintGenerator::Section) tab));
+        juce::SystemClipboard::copyTextToClipboard (text);
+
+        if (onMessage)
+            onMessage (allSections ? juce::String ("All notes copied: paste them anywhere")
+                                   : HintGenerator::sectionTitle ((HintGenerator::Section) tab) + " notes copied");
+    }
+
+    void AnalysisPanel::mouseDown (const juce::MouseEvent& e)
+    {
+        if (! e.mods.isPopupMenu() || ! hintsArea.contains (e.getPosition()))
+            return;
+
+        juce::PopupMenu menu;
+        menu.addItem (1, "Copy " + HintGenerator::sectionTitle ((HintGenerator::Section) tab).toLowerCase() + " notes");
+        menu.addItem (2, "Copy all notes");
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(),
+                            [safeThis = juce::Component::SafePointer<AnalysisPanel> (this)] (int result)
+                            {
+                                if (safeThis != nullptr && result > 0)
+                                    safeThis->copyNotes (result == 2);
+                            });
     }
 
     //==============================================================================
@@ -207,6 +236,8 @@ namespace benchmark::ui
         area.reduce (px (12.0f), 0);
         area.removeFromBottom (px (10.0f));
         hintsArea = area.removeFromRight (juce::roundToInt ((float) area.getWidth() * 0.32f));
+        copyButton.setBounds (juce::Rectangle<int> (px (46.0f), px (18.0f))
+                                  .withPosition (hintsArea.getRight() - px (54.0f), hintsArea.getY() + px (6.0f)));
         area.removeFromRight (px (14.0f));
         chartArea = area;
     }

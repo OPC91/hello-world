@@ -497,3 +497,26 @@ TEST_CASE ("Stereo and dynamics hints", "[hints]")
         CHECK (hints[2] == "Mix is more even in loudness: LRA 3.0 LU vs 6.5 LU");
     }
 }
+
+TEST_CASE ("Notes can be copied as a plain-text report", "[hints][report]")
+{
+    auto s = snapshotWithRanges ({ -10, -8, -6.5f, -12, -15, -17, -24 }, { -10, -8, -9, -12, -15, -20, -28 });
+    s.mix.secondsAnalysed = 83.0;
+    s.reference.secondsAnalysed = 45.4;
+    s.mix.dynamics.plr = 6.2f;
+    s.reference.dynamics.plr = 9.0f;
+
+    const auto all = HintGenerator::formatReport (s, false, "Club Mix 2024");
+    INFO (all);
+    CHECK (all.startsWith ("Benchmark comparison vs \"Club Mix 2024\"\nAverage since reset: mix 1:23, reference 0:45 analysed\n\nTonal balance\n"));
+    CHECK (all.contains ("- Overall the mix sounds brighter than the reference.\n"));
+    CHECK (all.contains ("- Mix has +2.5 dB more 200-500 Hz (low-mids) than the reference\n"));
+    CHECK (all.contains ("\n\nStereo width\n- Stereo width is close to the reference in every band.\n"));
+    CHECK (all.contains ("\n\nDynamics\n- Mix is more compressed or limited: PLR 6.2 dB vs 9.0 dB in the reference\n"));
+
+    const auto stereoOnly = HintGenerator::formatReport (s, true, {}, HintGenerator::Section::stereo);
+    CHECK (stereoOnly.startsWith ("Benchmark comparison\nLive view:"));
+    CHECK (stereoOnly.contains ("Stereo width"));
+    CHECK_FALSE (stereoOnly.contains ("Tonal balance"));
+    CHECK_FALSE (stereoOnly.contains ("Dynamics"));
+}
