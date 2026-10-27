@@ -37,7 +37,7 @@ namespace benchmark::ui
         const Snapshot now { rounded (r.mixShortTerm.load()), rounded (r.mixIntegrated.load()),
                              rounded (r.referenceShortTerm.load()), rounded (r.referenceIntegrated.load()),
                              rounded (r.mixGainDb.load()), rounded (r.referenceGainDb.load()),
-                             r.referenceAvailable.load(), matchToggle.getToggleState() };
+                             r.referenceAvailable.load(), matchToggle.getToggleState(), r.referenceLoudnessFromLoop.load() };
 
         if (! (now == shown))
         {
@@ -99,7 +99,7 @@ namespace benchmark::ui
 
         drawColumn (mixColumn, "MIX", Colours::mix, shown.mixIntegrated, "LUFS-I", shown.mixShort, "short-term");
         drawColumn (refColumn, "REFERENCE", Colours::reference,
-                    shown.referenceAvailable ? shown.refIntegrated : LiveReadings::noValue, "LUFS-I",
+                    shown.referenceAvailable ? shown.refIntegrated : LiveReadings::noValue, shown.fromLoop ? "LUFS-I loop" : "LUFS-I",
                     shown.refShort, "short-term");
 
         // Plain-language status of the match.
@@ -114,12 +114,12 @@ namespace benchmark::ui
             status = "Play your mix to measure it";
         else if (shown.mixGain < -0.05f)
         {
-            status = "Mix turned down " + juce::String (-shown.mixGain, 1) + " dB to match";
+            status = "Mix turned down " + juce::String (-shown.mixGain, 1) + " dB to match" + (shown.fromLoop ? " (loop)" : "") + "; exports stay untouched";
             statusColour = Colours::mix;
         }
         else if (shown.refGain < -0.05f)
         {
-            status = "Reference turned down " + juce::String (-shown.refGain, 1) + " dB to match";
+            status = "Reference turned down " + juce::String (-shown.refGain, 1) + " dB to match" + (shown.fromLoop ? " (loop)" : "");
             statusColour = Colours::reference;
         }
         else

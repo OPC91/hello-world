@@ -27,6 +27,8 @@ namespace benchmark
         std::atomic<float> referenceGainDb { 0.0f };
         std::atomic<bool> referenceAvailable { false };
         std::atomic<float> crossfadePosition { 0.0f };      // 0 = Mix, 1 = Reference
+        std::atomic<bool> referenceLoudnessFromLoop { false }; // matching uses the Free-mode loop's loudness
+        std::atomic<bool> rendering { false };                 // host is rendering offline: plugin passes the mix untouched
     };
 
     /** Progress of an alignment, for the UI (message thread). */
@@ -138,6 +140,7 @@ namespace benchmark
         dsp::BandSolo bandSolo;
         int64_t lastHostTime = 0;
         bool lastHostTimeValid = false, lastHostPlaying = false;
+        bool syncFollowingHost = false;
         juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> mixGain, referenceGain;
         const ReferenceAudio* lastReference = nullptr;
         uint32_t lastMeterUpdate = 0;

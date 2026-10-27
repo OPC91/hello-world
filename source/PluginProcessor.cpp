@@ -157,11 +157,27 @@ namespace benchmark
         updateTransport();
         captureForAlignment (buffer, numChannels);
 
-        const auto bypassed = hostBypassed || bypassValue->load (std::memory_order_relaxed) >= 0.5f;
+        // Offline renders (Export / bounce) always get the plain mix: no matching gain,
+        // no reference and no band solo, so a file is never made quieter by accident.
+        const auto renderingOffline = isNonRealtime();
+        const auto bypassed = hostBypassed || renderingOffline || bypassValue->load (std::memory_order_relaxed) >= 0.5f;
         const auto listenToReference = listenReferenceValue->load (std::memory_order_relaxed) >= 0.5f;
         const auto matchLoudness = loudnessMatchValue->load (std::memory_order_relaxed) >= 0.5f;
 
-        const auto referenceLufs = reference != nullptr ? reference->info.integratedFor (numChannels) : LiveReadings::noValue;
+        auto referenceLufs = reference != nullptr ? reference->info.integratedFor (numChannels) : LiveReadings::noValue;
+
+        // While a loop plays in Free mode, match against the loop's loudness (a chorus is
+        // typically louder than the whole track). In Sync the whole track is the fair basis.
+        bool loudnessFromLoop = false;
+        if (reference != nullptr && ! syncFollowingHost && LoopPoints::unpack (transport.loop.load (std::memory_order_relaxed)).isValid())
+        {
+            const auto loopLufs = (numChannels == 1 ? transport.loopLufsMono : transport.loopLufsStereo).load (std::memory_order_relaxed);
+            if (std::isfinite (loopLufs) && loopLufs > -70.0f)
+            {
+                referenceLufs = loopLufs;
+                loudnessFromLoop = true;
+            }
+        }
 
         dsp::MatchGains gains;
         if (matchLoudness && reference != nullptr && ! bypassed)
@@ -170,6 +186,14 @@ namespace benchmark
         mixGain.setTargetValue (juce::Decibels::decibelsToGain (gains.mixDb));
         referenceGain.setTargetValue (juce::Decibels::decibelsToGain (gains.referenceDb));
         crossfader.setTarget (! bypassed && listenToReference && reference != nullptr);
+
+        if (renderingOffline)
+        {
+            // No ramps in a render: start on the untouched mix immediately.
+            crossfader.jumpToTarget();
+            mixGain.setCurrentAndTargetValue (1.0f);
+            referenceGain.setCurrentAndTargetValue (1.0f);
+        }
 
         bandSolo.setMode ((dsp::BandSolo::Mode) juce::roundToInt (crossoverModeValue->load (std::memory_order_relaxed)));
         bandSolo.setBand (bypassed ? dsp::BandSolo::off : juce::roundToInt (bandSoloValue->load (std::memory_order_relaxed)) - 1);
@@ -197,6 +221,8 @@ namespace benchmark
         readings.referenceGainDb.store (juce::Decibels::gainToDecibels (referenceGain.getCurrentValue()), std::memory_order_relaxed);
         readings.referenceAvailable.store (reference != nullptr, std::memory_order_relaxed);
         readings.crossfadePosition.store (crossfader.getPosition(), std::memory_order_relaxed);
+        readings.referenceLoudnessFromLoop.store (loudnessFromLoop, std::memory_order_relaxed);
+        readings.rendering.store (renderingOffline, std::memory_order_relaxed);
 
         transport.playhead.store (player.getPosition(), std::memory_order_relaxed);
         transport.referencePlaying.store (reference != nullptr && player.isPlaying(), std::memory_order_relaxed);
@@ -221,6 +247,7 @@ namespace benchmark
         }
 
         lastHostPlaying = hostPlaying;
+        syncFollowingHost = syncModeValue->load (std::memory_order_relaxed) >= 0.5f && hostTime.has_value();
         lastHostTimeValid = hostTime.has_value();
         lastHostTime = hostTime.value_or (0);
 
@@ -296,7 +323,11 @@ namespace benchmark
             }
         }
 
-        // Band solo applies to whatever is audible, Mix or Reference alike.
+        // Band solo applies to whatever is audible, Mix or Reference alike. It is skipped
+        // in offline renders, except that linear-phase mode keeps its (compensated) delay.
+        if (isNonRealtime() && bandSolo.getActiveMode() == dsp::BandSolo::Mode::zeroLatency)
+            return;
+
         if (! bandSolo.isTransparent())
             bandSolo.process (channels, numChannels, numSamples);
     }
@@ -448,7 +479,7 @@ namespace benchmark
         updateLatency();
 
         // Keep the linear-phase filter matching the selected band (loaded off the audio thread).
-        const auto bypassed = bypassValue->load() >= 0.5f;
+        const auto bypassed = bypassValue->load() >= 0.5f || isNonRealtime();
         bandSolo.updateLinearPhaseBand (bypassed ? dsp::BandSolo::off : juce::roundToInt (bandSoloValue->load()) - 1);
 
         // Alignment progress.

@@ -376,3 +376,75 @@ TEST_CASE ("State restored from a background thread applies parameters immediate
     REQUIRE (restored.getReferenceLibrary().size() == 1);
     CHECK (restored.getReferenceLibrary()[0].file == file);
 }
+
+TEST_CASE ("Offline renders pass the mix through untouched", "[processor][render]")
+{
+    // Reference much quieter than the mix, so matching would turn the mix down.
+    ProcessorWithReference p (testing::makeSine (48000.0, 10.0, 1000.0, -30.0));
+    setParam (p.processor, ParamIDs::loudnessMatch, 1.0f);
+    setParam (p.processor, ParamIDs::listenRef, 1.0f);
+    p.run (testing::makeSine (48000.0, 4.0, 500.0, -10.0));
+    REQUIRE (p.processor.getReadings().mixGainDb.load() < -10.0f); // matching is active while listening
+
+    p.processor.setNonRealtime (true);
+    const auto input = testing::makeSine (48000.0, 1.0, 700.0, -10.0);
+    const auto output = p.run (input);
+
+    for (int ch = 0; ch < 2; ++ch)
+        for (int i = 0; i < input.getNumSamples(); ++i)
+            REQUIRE (juce::exactlyEqual (output.getSample (ch, i), input.getSample (ch, i)));
+
+    CHECK (p.processor.getReadings().rendering.load());
+}
+
+TEST_CASE ("Free-mode loops match against the loop's loudness", "[processor][match][loop]")
+{
+    // 5 s at -30 dBFS, then 5 s at -15 dBFS: whole track and the loud section differ a lot.
+    ProcessorWithReference p (testing::makeSineSequence (48000.0, { { 5.0, -30.0 }, { 5.0, -15.0 } }));
+    auto& library = p.processor.getReferenceLibrary();
+    const auto wholeTrack = library[0].info.integratedStereo;
+
+    library.setLoop (0, benchmark::LoopRegion { 6.0, 9.0 });
+    auto& transport = p.processor.getTransport();
+    CHECK (transport.loopLufsStereo.load() == Catch::Approx (-15.0f).margin (0.1f));
+    CHECK (transport.loopLufsMono.load() == Catch::Approx (-18.01f).margin (0.1f));
+
+    // Free mode (no host position): the loop's loudness is used.
+    setParam (p.processor, ParamIDs::loudnessMatch, 1.0f);
+    p.run (testing::makeSine (48000.0, 0.5, 1000.0, -20.0));
+    CHECK (p.processor.getReadings().referenceLoudnessFromLoop.load());
+    CHECK (p.processor.getReadings().referenceIntegrated.load() == Catch::Approx (-15.0f).margin (0.1f));
+
+    // Clearing the loop goes back to the whole track.
+    library.setLoop (0, std::nullopt);
+    CHECK (std::isinf (transport.loopLufsStereo.load()));
+    p.run (testing::makeSine (48000.0, 0.5, 1000.0, -20.0));
+    CHECK_FALSE (p.processor.getReadings().referenceLoudnessFromLoop.load());
+    CHECK (p.processor.getReadings().referenceIntegrated.load() == Catch::Approx (wholeTrack).margin (0.01f));
+}
+
+TEST_CASE ("Sync mode keeps whole-track matching even with a loop set", "[processor][match][loop][sync]")
+{
+    ProcessorWithReference p (testing::makeSineSequence (48000.0, { { 5.0, -30.0 }, { 5.0, -15.0 } }));
+
+    struct PlayHead final : juce::AudioPlayHead
+    {
+        juce::Optional<PositionInfo> getPosition() const override
+        {
+            PositionInfo info;
+            info.setIsPlaying (true);
+            info.setTimeInSamples (0);
+            return info;
+        }
+    } playHead;
+
+    p.processor.setPlayHead (&playHead);
+    setParam (p.processor, ParamIDs::syncMode, 1.0f);
+    p.processor.getReferenceLibrary().setLoop (0, benchmark::LoopRegion { 6.0, 9.0 });
+    p.run (testing::makeSine (48000.0, 0.5, 1000.0, -20.0));
+
+    CHECK_FALSE (p.processor.getReadings().referenceLoudnessFromLoop.load());
+    CHECK (p.processor.getReadings().referenceIntegrated.load()
+           == Catch::Approx (p.processor.getReferenceLibrary()[0].info.integratedStereo).margin (0.01f));
+    p.processor.setPlayHead (nullptr);
+}

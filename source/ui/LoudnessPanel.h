@@ -33,7 +33,7 @@ namespace benchmark::ui
         struct Snapshot
         {
             float mixShort, mixIntegrated, refShort, refIntegrated, mixGain, refGain;
-            bool referenceAvailable, matchOn;
+            bool referenceAvailable, matchOn, fromLoop;
             bool operator== (const Snapshot&) const = default;
         };
 

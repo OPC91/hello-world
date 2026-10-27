@@ -43,9 +43,8 @@ Formats: **VST3**, **AU** (macOS) and **Standalone**, built with C++20, JUCE 8 a
 
 ### Current behaviour worth knowing
 
-- **Loudness matching can turn your mix down.** When your mix is louder than the reference, Benchmark lowers your mix rather than raising the reference, so it never boosts. Leave it active while you export and the export will be quieter. Bypass or remove it first.
-- **References follow your session by default (Sync).** Projects saved before this change keep the mode they were saved with. In Free mode, references keep playing while you listen to your mix unless you pause them.
-- **Matching uses each reference's whole-track loudness**, not the loop region.
+- **Exports are never affected.** Matching turns down whichever source is louder, which can be your mix. But whenever the host renders offline (Export, bounce or Render to audio), Benchmark passes your mix through bit-for-bit: no matching gain, no reference and no band solo. In linear-phase mode its fixed delay remains, and the host compensates for it.
+- **Matching basis:** in Sync mode (the default), matching uses each reference's whole-track loudness, because you are comparing the same song positions. While a loop plays in Free mode, it uses the loop's own loudness instead, because a chorus is usually louder than the track average. The Loudness panel shows "LUFS-I loop" when that happens.
 - **The analysis only covers audio that has played.** The reference side resets when you pick a different reference.
 - **The AU is built and validated in CI** (`auval` and pluginval). The project was developed on Linux, so the macOS and Windows builds have only been checked by CI, not in a DAW.
 - **Memory:** references are held decoded in memory, at about 11.5 MB per stereo minute at 48 kHz. Above 1.5 GB in total, the least recently used references are unloaded and reload when selected.

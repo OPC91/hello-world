@@ -322,8 +322,31 @@ namespace benchmark
             return;
         }
 
-        transport->setLoop ({ (int64_t) std::llround (active->loop->start * targetSampleRate),
-                              (int64_t) std::llround (active->loop->end * targetSampleRate) });
+        const LoopPoints points { (int64_t) std::llround (active->loop->start * targetSampleRate),
+                                  (int64_t) std::llround (active->loop->end * targetSampleRate) };
+        transport->setLoop (points);
+
+        // Measure the loop's own loudness so matching follows the section being compared.
+        auto loopStereo = -std::numeric_limits<float>::infinity();
+        auto loopMono = loopStereo;
+
+        if (const auto& audio = active->audio; audio != nullptr && std::abs (audio->sampleRate - targetSampleRate) < 1e-6)
+        {
+            const auto start = (int) juce::jlimit ((int64_t) 0, (int64_t) audio->samples.getNumSamples(), points.start);
+            const auto end = (int) juce::jlimit ((int64_t) start, (int64_t) audio->samples.getNumSamples(), points.end);
+
+            if (end > start)
+            {
+                const juce::AudioBuffer<float> region (const_cast<float* const*> (audio->samples.getArrayOfReadPointers()),
+                                                       audio->samples.getNumChannels(), start, end - start);
+                const auto info = ReferenceDecoder::analyse (region, targetSampleRate);
+                loopStereo = info.integratedStereo;
+                loopMono = info.integratedMono;
+            }
+        }
+
+        transport->loopLufsStereo.store (loopStereo);
+        transport->loopLufsMono.store (loopMono);
     }
 
     //==============================================================================
