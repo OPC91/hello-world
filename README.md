@@ -23,8 +23,8 @@ Formats: **VST3**, **AU** (macOS) and **Standalone**, built with C++20, JUCE 8 a
 5. **Reference Transport.** Shows the waveform of the active reference with a playhead.
    - **Click** to jump. **Drag** to make a loop region, then drag its edges to resize it or its middle to move it. **Loop** turns looping on and off.
    - **Markers 1–3** store up to three loops per reference. Click an empty marker to save the current loop, and click a filled one to jump back to it. Right-click to overwrite or clear.
-   - **Free**: the reference plays on its own, with play/pause, seeking and loops.
-   - **Sync**: the reference follows your DAW's play/stop, position and cycle jumps. If the host gives no position, it plays freely instead.
+   - **Sync** (default): the reference stays at the same song position as your mix. It follows your DAW's play/stop, position and cycle jumps, so switching always lands on the same moment. If the host gives no position, it plays freely instead.
+   - **Free**: the reference plays on its own, with play/pause, seeking and loops. Use it to audition a reference section that isn't lined up with your song.
    - Jumps, loop points and pause/resume use 5 ms crossfades.
 6. **Align to session** (Sync mode). Use this when a reference is a version of a song that is also in your session.
    - Click **Align to session**, then play the session where that song plays. Benchmark listens for 15 s and finds where the excerpt sits in the reference to the exact sample, so the two then play in step.
@@ -42,7 +42,7 @@ Formats: **VST3**, **AU** (macOS) and **Standalone**, built with C++20, JUCE 8 a
 ### Current behaviour worth knowing
 
 - **Loudness matching can turn your mix down.** When your mix is louder than the reference, Benchmark lowers your mix rather than raising the reference, so it never boosts. Leave it active while you export and the export will be quieter. Bypass or remove it first.
-- **References keep playing while you listen to your mix** in Free mode, unless you pause them, so switching lands mid-song. In Sync mode they follow the host.
+- **References follow your session by default (Sync).** Projects saved before this change keep the mode they were saved with. In Free mode, references keep playing while you listen to your mix unless you pause them.
 - **Matching uses each reference's whole-track loudness**, not the loop region.
 - **The analysis only covers audio that has played.** The reference side resets when you pick a different reference.
 - **The AU is built and validated in CI** (`auval` and pluginval). The project was developed on Linux, so the macOS and Windows builds have only been checked by CI, not in a DAW.

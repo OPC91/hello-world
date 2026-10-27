@@ -116,6 +116,9 @@ TEST_CASE ("Parameters exist and are automatable", "[parameters]")
 
     CHECK (processor.getBypassParameter() == processor.getValueTreeState().getParameter (ParamIDs::bypass));
 
+    // References follow the session (Sync) unless the user picks Free.
+    CHECK (processor.getValueTreeState().getParameter (ParamIDs::syncMode)->getCurrentValueAsText() == "Sync");
+
     auto* ab = processor.getValueTreeState().getParameter (ParamIDs::listenRef);
     CHECK (ab->getText (0.0f, 32) == "Mix");
     CHECK (ab->getText (1.0f, 32) == "Reference");

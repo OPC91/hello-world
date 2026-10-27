@@ -23,7 +23,7 @@ namespace benchmark
 
         layout.add (std::make_unique<juce::AudioParameterChoice> (
             ParameterID { ParamIDs::syncMode, parameterVersion }, "Reference Playback",
-            juce::StringArray { "Free", "Sync" }, 0,
+            juce::StringArray { "Free", "Sync" }, 1, // Sync by default: the reference follows the session
             juce::AudioParameterChoiceAttributes().withAutomatable (false)));
 
         layout.add (std::make_unique<juce::AudioParameterChoice> (
