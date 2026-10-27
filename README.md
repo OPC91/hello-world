@@ -7,6 +7,8 @@ Benchmark (working name) is a mix-referencing plugin. Put it on your master bus,
 - see where your mix differs in tonal balance, stereo width and dynamics, in plain language;
 - solo a frequency band on both, to compare bass with bass and so on.
 
+Made by [Exnilo](https://exnilo.co.uk), whose other plugins include Nil2Max. The interface uses the same look: navy panels, pill controls, and the cyan and violet brand gradient. Mix is shown in cyan and Reference in pink.
+
 Formats: **VST3**, **AU** (macOS) and **Standalone**, built with C++20, JUCE 8 and CMake.
 
 ## Using it
@@ -84,7 +86,7 @@ Build outputs are in `build/Benchmark_artefacts/Release/`:
 
 To have the build copy the plugins into place automatically, configure with `-DBENCHMARK_COPY_PLUGIN_AFTER_BUILD=ON`.
 
-If your DAW doesn't show the AU after you install it, run `killall -9 AudioComponentRegistrar`, then check it with `auval -v aufx Bnch Cito`.
+If your DAW doesn't show the AU after you install it, run `killall -9 AudioComponentRegistrar`, then check it with `auval -v aufx Bnch Exnl`.
 
 ## Building on Windows
 
@@ -170,4 +172,4 @@ tests/        Catch2 tests, plus an offscreen UI snapshot test ("[.snapshot]")
 
 ## Identifiers
 
-Manufacturer: Citosoft (`Cito`). Plugin code: `Bnch`. Bundle ID: `com.citosoft.benchmark`. These are placeholders. Change them in `CMakeLists.txt` before release, because hosts use them to identify the plugin in saved sessions.
+Manufacturer: Exnilo (`Exnl`). Plugin code: `Bnch`. Bundle ID: `uk.co.exnilo.benchmark`. Website: https://exnilo.co.uk. Hosts use these codes to identify the plugin in saved sessions, so fix them before release. If Nil2Max uses a different manufacturer code, use the same one here, so both plugins appear under one vendor.

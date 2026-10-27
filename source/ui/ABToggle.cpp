@@ -70,12 +70,8 @@ namespace benchmark::ui
     {
         auto& theme = getTheme (*this);
         const auto bounds = getLocalBounds().toFloat();
-        const auto corner = bounds.getHeight() * 0.22f;
-
-        g.setColour (Colours::panel);
-        g.fillRoundedRectangle (bounds, corner);
-        g.setColour (Colours::outline);
-        g.drawRoundedRectangle (bounds.reduced (0.5f), corner, 1.0f);
+        const auto corner = theme.panelCorner();
+        paintPanel (g, bounds, theme);
 
         // Sliding highlight, coloured by blending between the two source colours.
         const auto inset = theme.px (4.0f);

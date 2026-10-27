@@ -51,7 +51,7 @@ namespace benchmark
         ui::AnalysisPanel analysis;
         ui::BandSoloBar bandSolo;
 
-        juce::Rectangle<int> headerArea;
+        juce::Rectangle<int> headerArea, footerArea;
         juce::String message;
         juce::uint32 messageExpiry = 0;
 

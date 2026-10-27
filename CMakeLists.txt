@@ -28,10 +28,10 @@ endif()
 
 juce_add_plugin(Benchmark
     PRODUCT_NAME "Benchmark"
-    COMPANY_NAME "Citosoft"
-    COMPANY_WEBSITE "https://www.citosoft.co.uk"
-    BUNDLE_ID "com.citosoft.benchmark"
-    PLUGIN_MANUFACTURER_CODE Cito
+    COMPANY_NAME "Exnilo"
+    COMPANY_WEBSITE "https://exnilo.co.uk"
+    BUNDLE_ID "uk.co.exnilo.benchmark"
+    PLUGIN_MANUFACTURER_CODE Exnl
     PLUGIN_CODE Bnch
     FORMATS ${BENCHMARK_FORMATS}
     IS_SYNTH FALSE

@@ -22,7 +22,6 @@ namespace benchmark::ui
 
         const auto latencyMs = juce::roundToInt (1000.0 * dsp::BandSolo::firLengthFor (48000.0) / 2 / 48000.0);
         linearToggle.setWantsKeyboardFocus (false);
-        linearToggle.setColour (juce::ToggleButton::tickColourId, Colours::reference);
         linearToggle.setTooltip ("Linear-phase bands: steeper and phase-accurate, but add about " + juce::String (latencyMs)
                                  + " ms of latency (reported to your DAW, which compensates). Off: zero-latency crossovers.");
         linearAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
@@ -43,14 +42,14 @@ namespace benchmark::ui
         auto& theme = getTheme (const_cast<BandSoloBar&> (*this));
         auto area = getLocalBounds().toFloat();
         area.removeFromLeft (theme.px (76.0f));
-        area.removeFromRight (theme.px (118.0f));
+        area.removeFromRight (theme.px (132.0f));
         return area.withSizeKeepingCentre (area.getWidth(), theme.px (24.0f));
     }
 
     void BandSoloBar::resized()
     {
         auto& theme = getTheme (*this);
-        linearToggle.setBounds (getLocalBounds().removeFromRight (juce::roundToInt (theme.px (108.0f))));
+        linearToggle.setBounds (getLocalBounds().removeFromRight (juce::roundToInt (theme.px (124.0f))));
     }
 
     void BandSoloBar::paint (juce::Graphics& g)
@@ -58,16 +57,21 @@ namespace benchmark::ui
         auto& theme = getTheme (*this);
         const auto soloActive = selected > 0;
 
-        g.setColour (soloActive ? Colours::reference : Colours::textMuted);
+        g.setColour (soloActive ? Colours::violet : Colours::textSecondary);
         g.setFont (theme.font (10.5f, true).withExtraKerningFactor (0.1f));
         g.drawText ("BAND SOLO", getLocalBounds().toFloat().withWidth (theme.px (72.0f)), juce::Justification::centredLeft);
 
         const auto area = getSegmentsArea();
         const auto corner = area.getHeight() * 0.5f;
-        g.setColour (Colours::panel);
+        g.setColour (Colours::panelRaised);
         g.fillRoundedRectangle (area, corner);
-        g.setColour (soloActive ? Colours::reference.withAlpha (0.6f) : Colours::outline);
-        g.drawRoundedRectangle (area.reduced (0.5f), corner, 1.0f);
+        if (soloActive)
+            strokeBrandPill (g, area.reduced (0.75f), 1.5f);
+        else
+        {
+            g.setColour (Colours::outline);
+            g.drawRoundedRectangle (area.reduced (0.5f), corner, 1.0f);
+        }
 
         const auto w = area.getWidth() / (float) labels.size();
         for (int i = 0; i < labels.size(); ++i)
@@ -76,11 +80,11 @@ namespace benchmark::ui
 
             if (i == selected)
             {
-                g.setColour (i == 0 ? Colours::outline : Colours::reference.withAlpha (0.25f));
+                g.setColour (i == 0 ? Colours::outline : Colours::violet.withAlpha (0.3f));
                 g.fillRoundedRectangle (segment.reduced (theme.px (2.0f)), corner);
             }
 
-            g.setColour (i == selected ? (i == 0 ? Colours::textPrimary : Colours::reference) : Colours::textSecondary);
+            g.setColour (i == selected ? Colours::textPrimary : Colours::textSecondary);
             g.setFont (theme.font (11.0f, i == selected));
             g.drawText (labels[i], segment, juce::Justification::centred);
         }

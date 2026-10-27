@@ -11,7 +11,6 @@ namespace benchmark::ui
         setTitle ("Loudness");
 
         matchToggle.setWantsKeyboardFocus (false);
-        matchToggle.setColour (juce::ToggleButton::tickColourId, Colours::reference);
         matchToggle.setTooltip ("Loudness match: turns the louder of Mix and Reference down so they play at the same integrated loudness.");
         matchAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
             p.getValueTreeState(), ParamIDs::loudnessMatch, matchToggle);
@@ -56,19 +55,14 @@ namespace benchmark::ui
         resetButton.setBounds (header.removeFromRight (juce::roundToInt (theme.px (46.0f)))
                                    .withSizeKeepingCentre (juce::roundToInt (theme.px (46.0f)), juce::roundToInt (theme.px (20.0f))));
         header.removeFromRight (juce::roundToInt (theme.px (8.0f)));
-        matchToggle.setBounds (header.removeFromRight (juce::roundToInt (theme.px (70.0f))));
+        matchToggle.setBounds (header.removeFromRight (juce::roundToInt (theme.px (88.0f))));
     }
 
     void LoudnessPanel::paint (juce::Graphics& g)
     {
         auto& theme = getTheme (*this);
         auto bounds = getLocalBounds().toFloat();
-        const auto corner = theme.px (8.0f);
-
-        g.setColour (Colours::panel);
-        g.fillRoundedRectangle (bounds, corner);
-        g.setColour (Colours::outline);
-        g.drawRoundedRectangle (bounds.reduced (0.5f), corner, 1.0f);
+        paintPanel (g, bounds, theme);
 
         auto header = bounds.removeFromTop (theme.px (30.0f)).reduced (theme.px (12.0f), 0.0f);
         g.setColour (Colours::textSecondary);

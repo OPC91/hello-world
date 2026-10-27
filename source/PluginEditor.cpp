@@ -58,26 +58,38 @@ namespace benchmark
     //==============================================================================
     void BenchmarkEditor::paint (juce::Graphics& g)
     {
-        g.fillAll (ui::Colours::background);
+        ui::paintBackground (g, getLocalBounds(), theme);
 
-        auto header = headerArea.toFloat().reduced (theme.px (16.0f), 0.0f);
+        auto header = headerArea.toFloat().reduced (theme.px (18.0f), 0.0f);
 
-        // Wordmark: a small two-tone mark followed by the product name.
-        const auto markSize = theme.px (14.0f);
-        auto mark = header.removeFromLeft (markSize * 2.0f).withSizeKeepingCentre (markSize * 2.0f, markSize);
-        g.setColour (ui::Colours::mix);
-        g.fillRoundedRectangle (mark.removeFromLeft (markSize).reduced (theme.px (1.5f)), theme.px (2.0f));
-        g.setColour (ui::Colours::reference);
-        g.fillRoundedRectangle (mark.reduced (theme.px (1.5f)), theme.px (2.0f));
+        // Wordmark in the Nil2Max style: "BENCH" in white, "MARK" in the brand gradient, then "by EXNILO".
+        const auto wordFont = theme.font (21.0f, true).withExtraKerningFactor (0.06f);
+        const auto benchWidth = juce::GlyphArrangement::getStringWidth (wordFont, "BENCH");
+        const auto markWidth = juce::GlyphArrangement::getStringWidth (wordFont, "MARK");
 
-        header.removeFromLeft (theme.px (10.0f));
+        g.setFont (wordFont);
         g.setColour (ui::Colours::textPrimary);
-        g.setFont (theme.font (16.0f, true).withExtraKerningFactor (0.25f));
-        g.drawText ("BENCHMARK", header, juce::Justification::centredLeft);
+        g.drawText ("BENCH", header.withWidth (benchWidth + 2.0f), juce::Justification::centredLeft, false);
+
+        const auto markArea = header.withX (header.getX() + benchWidth).withWidth (markWidth + 2.0f);
+        g.setGradientFill (juce::ColourGradient (ui::Colours::mix, markArea.getX(), 0.0f,
+                                                 ui::Colours::violet, markArea.getRight(), 0.0f, false));
+        g.drawText ("MARK", markArea, juce::Justification::centredLeft, false);
+
+        g.setColour (ui::Colours::textSecondary);
+        g.setFont (theme.font (11.5f, true));
+        g.drawText ("by EXNILO", header.withX (markArea.getRight() + theme.px (10.0f)).withTrimmedTop (theme.px (4.0f)),
+                    juce::Justification::centredLeft, false);
 
         g.setColour (ui::Colours::textMuted);
-        g.setFont (theme.font (11.0f));
+        g.setFont (theme.font (11.0f, true));
         g.drawText ("v" BENCHMARK_VERSION_STRING, header, juce::Justification::centredRight);
+
+        // Shortcut hints along the bottom, as on Nil2Max.
+        g.setColour (ui::Colours::textMuted);
+        g.setFont (theme.font (11.0f));
+        g.drawText ("space: mix / reference   |   1-4: band solo, 0: off   |   drag the waveform: loop   |   right-click for more",
+                    footerArea, juce::Justification::centred, true);
     }
 
     void BenchmarkEditor::paintOverChildren (juce::Graphics& g)
@@ -111,11 +123,11 @@ namespace benchmark
         const auto gap = juce::roundToInt (theme.px (12.0f));
         auto area = getLocalBounds();
 
-        headerArea = area.removeFromTop (juce::roundToInt (theme.px (48.0f)));
+        headerArea = area.removeFromTop (juce::roundToInt (theme.px (52.0f)));
+        footerArea = area.removeFromBottom (juce::roundToInt (theme.px (24.0f)));
         bandSolo.setBounds (headerArea.withSizeKeepingCentre (juce::roundToInt (theme.px (520.0f)), juce::roundToInt (theme.px (28.0f)))
                                 .translated (juce::roundToInt (theme.px (10.0f)), 0));
         area.reduce (gap, 0);
-        area.removeFromBottom (gap);
 
         referenceList.setBounds (area.removeFromLeft (juce::roundToInt ((float) area.getWidth() * 0.26f)));
         area.removeFromLeft (gap);

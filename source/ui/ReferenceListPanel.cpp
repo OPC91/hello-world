@@ -108,12 +108,7 @@ namespace benchmark::ui
     {
         auto& theme = getTheme (*this);
         const auto bounds = getLocalBounds().toFloat();
-        const auto corner = theme.px (8.0f);
-
-        g.setColour (Colours::panel);
-        g.fillRoundedRectangle (bounds, corner);
-        g.setColour (dropHighlight ? Colours::reference : Colours::outline);
-        g.drawRoundedRectangle (bounds.reduced (dropHighlight ? 1.0f : 0.5f), corner, dropHighlight ? 2.0f : 1.0f);
+        paintPanel (g, bounds, theme, dropHighlight);
 
         auto header = getLocalBounds().reduced (juce::roundToInt (theme.px (12.0f)), 0)
                           .removeFromTop (juce::roundToInt (theme.px (30.0f)));

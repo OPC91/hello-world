@@ -4,30 +4,50 @@
 
 namespace benchmark::ui
 {
-    // Original dark palette. Mix is cool (cyan), Reference is warm (amber).
+    // Exnilo palette, matched to Nil2Max (Trance theme) and exnilo.co.uk.
+    // Mix is cyan, Reference is pink; violet is the neutral brand accent.
     namespace Colours
     {
-        inline const juce::Colour background   { 0xff111317 };
-        inline const juce::Colour panel        { 0xff191c22 };
-        inline const juce::Colour panelRaised  { 0xff21252d };
-        inline const juce::Colour outline      { 0xff2c313b };
-        inline const juce::Colour textPrimary  { 0xffe8eaee };
-        inline const juce::Colour textSecondary{ 0xff8a919e };
-        inline const juce::Colour textMuted    { 0xff596070 };
-        inline const juce::Colour mix          { 0xff3ec7d6 };
-        inline const juce::Colour reference    { 0xfff2a541 };
-        inline const juce::Colour warning      { 0xffe86a5c };
+        inline const juce::Colour background    { 0xff0b1026 };
+        inline const juce::Colour backgroundTop { 0xff141c3d };
+        inline const juce::Colour panel         { 0xff151d40 };
+        inline const juce::Colour panelLow      { 0xff111836 }; // bottom of the panel gradient
+        inline const juce::Colour panelRaised   { 0xff1c2956 };
+        inline const juce::Colour outline       { 0xff2a3570 };
+        inline const juce::Colour textPrimary   { 0xfff4f3ff };
+        inline const juce::Colour textSecondary { 0xff98a6da };
+        inline const juce::Colour textMuted     { 0xff5b6692 };
+        inline const juce::Colour mix           { 0xff39d0ff };
+        inline const juce::Colour reference     { 0xffff5fa2 };
+        inline const juce::Colour violet        { 0xffb46bff };
+        inline const juce::Colour amber         { 0xffffb547 };
+        inline const juce::Colour warning       { 0xffff7466 };
 
-        // Chart marks: the same hues stepped for the dark chart surface
-        // (validated: OKLCH L 0.48-0.67, CVD separation 17 dE, >= 3:1 contrast).
-        inline const juce::Colour mixChart       { 0xff22a3b0 };
-        inline const juce::Colour referenceChart { 0xffc98026 };
-        inline const juce::Colour grid           { 0xff262a32 };
+        // Chart marks: the same hues stepped for the navy chart surface
+        // (validated: OKLCH L 0.48-0.67, CVD separation 10 dE, >= 3:1 contrast).
+        inline const juce::Colour mixChart       { 0xff1b9dcf };
+        inline const juce::Colour referenceChart { 0xffe2559a };
+        inline const juce::Colour grid           { 0xff212b58 };
     }
+
+    class Theme;
+
+    /** Window background: navy gradient, soft violet glow and a faint dot grid. */
+    void paintBackground (juce::Graphics&, juce::Rectangle<int> bounds, const Theme&);
+
+    /** A rounded card like Nil2Max's panels. */
+    void paintPanel (juce::Graphics&, juce::Rectangle<float> bounds, const Theme&, bool highlighted = false);
+
+    /** Pill outline in the cyan-to-violet brand gradient. */
+    void strokeBrandPill (juce::Graphics&, juce::Rectangle<float> bounds, float thickness);
+
+    /** Small uppercase section label ("OPTIONS" style). */
+    void paintSectionLabel (juce::Graphics&, const Theme&, const juce::String& text, juce::Rectangle<float> area,
+                            juce::Colour colour = Colours::textSecondary);
 
     // Design is laid out on a 1000 x 640 grid and scaled with the window.
     inline constexpr int baseWidth = 1000;
-    inline constexpr int baseHeight = 640;
+    inline constexpr int baseHeight = 660;
 
     class Theme final : public juce::LookAndFeel_V4
     {
@@ -39,6 +59,7 @@ namespace benchmark::ui
 
         juce::Font font (float baseSize, bool bold = false) const;
         float px (float baseValue) const noexcept { return baseValue * scale; }
+        float panelCorner() const noexcept { return px (14.0f); }
 
         void drawCornerResizer (juce::Graphics&, int w, int h, bool isMouseOver, bool isMouseDragging) override;
         void drawToggleButton (juce::Graphics&, juce::ToggleButton&, bool highlighted, bool down) override;

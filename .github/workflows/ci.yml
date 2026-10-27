@@ -76,7 +76,7 @@ jobs:
           mkdir -p ~/Library/Audio/Plug-Ins/Components
           cp -R "build/Benchmark_artefacts/${BUILD_TYPE}/AU/Benchmark.component" ~/Library/Audio/Plug-Ins/Components/
           killall -9 AudioComponentRegistrar || true
-          auval -strict -v aufx Bnch Cito
+          auval -strict -v aufx Bnch Exnl
           ${{ matrix.pluginval_bin }} --strictness-level $PLUGINVAL_STRICTNESS --validate-in-process \
             --validate ~/Library/Audio/Plug-Ins/Components/Benchmark.component
 

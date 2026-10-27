@@ -92,8 +92,9 @@ namespace benchmark::ui
                 const auto segment = bounds.withX (bounds.getX() + w * (float) i).withWidth (w);
                 if (i == selected)
                 {
-                    g.setColour (Colours::outline);
+                    g.setColour (Colours::violet.withAlpha (0.25f));
                     g.fillRoundedRectangle (segment.reduced (theme.px (2.0f)), corner);
+                    strokeBrandPill (g, segment.reduced (theme.px (2.0f)), 1.2f);
                 }
 
                 g.setColour (i == selected ? Colours::textPrimary : Colours::textSecondary);
@@ -246,12 +247,7 @@ namespace benchmark::ui
     {
         auto& theme = getTheme (*this);
         const auto bounds = getLocalBounds().toFloat();
-        const auto corner = theme.px (8.0f);
-
-        g.setColour (Colours::panel);
-        g.fillRoundedRectangle (bounds, corner);
-        g.setColour (Colours::outline);
-        g.drawRoundedRectangle (bounds.reduced (0.5f), corner, 1.0f);
+        paintPanel (g, bounds, theme);
 
         g.setColour (Colours::textSecondary);
         g.setFont (theme.font (11.0f, true).withExtraKerningFactor (0.1f));
