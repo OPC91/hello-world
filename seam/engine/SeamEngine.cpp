@@ -17,6 +17,7 @@ namespace seam::engine
     {
         sampleRate = newSampleRate > 0.0 ? newSampleRate : 44100.0;
         chain.prepare (sampleRate);
+        fill.prepare (sampleRate);
         mixStep = static_cast<float> (1.0 / (mixSeconds * sampleRate));
         riseCoeff = std::exp (-1.0 / (riseSeconds * sampleRate));
         reset();
@@ -28,6 +29,7 @@ namespace seam::engine
         position = {};
         lastTelemetry = {};
         chain.reset();
+        fill.reset();
         manual = 0.0;
         dropPending = false;
         previousEffective = 0.0f;
@@ -92,8 +94,13 @@ namespace seam::engine
         float* right = numChannels > 1 ? channels[1] : nullptr;
         chunkWasBypassed = true;
 
+        bool changed = false;
+        kit = kits.acquire (changed);
+        pattern = patterns.acquire (changed);
+
         if (position.jumped)
         {
+            fill.killAll();
             haveBar = false;
             if (dropPending) { manual = std::min (manual, static_cast<double> (settings.transition)); dropPending = false; }
         }
@@ -133,6 +140,7 @@ namespace seam::engine
             tel.beatPhase = static_cast<float> (beats - std::floor (beats));
         }
         tel.effective = previousEffective;
+        tel.fillActive = fill.isActive();
         tel.bypassed = chunkWasBypassed;
         lastTelemetry = tel;
     }
@@ -144,11 +152,12 @@ namespace seam::engine
         dropPending = false;
         previousEffective = 0.0f;
 
-        if (mix <= 0.0f)
+        if (mix <= 0.0f && ! fill.isActive())
             return;   // untouched
 
+        fill.killAll();
         chunkWasBypassed = false;
-        for (int offset = 0; offset < numSamples && mix > 0.0f; offset += chunkSize)
+        for (int offset = 0; offset < numSamples && (mix > 0.0f || fill.isActive()); offset += chunkSize)
         {
             const int n = std::min (chunkSize, numSamples - offset);
             float* l = left + offset;
@@ -158,10 +167,17 @@ namespace seam::engine
             std::copy (l, l + n, dryL.begin());
             std::copy (r, r + n, dryR.begin());
             std::fill (effective.begin(), effective.begin() + n, 0.0f);
+            std::fill (fillL.begin(), fillL.begin() + n, 0.0f);
+            std::fill (fillR.begin(), fillR.begin() + n, 0.0f);
+            std::fill (dryGain.begin(), dryGain.begin() + n, 1.0f);
+            FillPlayer::Output fillOut { fillL.data(), fillR.data(), dryGain.data() };
+            fill.render (nullptr, nullptr, position, offset, n, effective.data(), 1.0f, false, fillOut);
             chain.process (l, r, n, effective.data(), ppqs.data(), 0.0, false, {});
             for (int i = 0; i < n; ++i)
             {
                 const auto k = static_cast<size_t> (i);
+                l[i] += fillL[k];
+                r[i] += fillR[k];
                 mix = std::max (0.0f, mix - mixStep);
                 l[i] = dryL[k] * (1.0f - mix) + l[i] * mix;
                 r[i] = dryR[k] * (1.0f - mix) + r[i] * mix;
@@ -172,7 +188,10 @@ namespace seam::engine
         }
 
         if (mix <= 0.0f)
+        {
             chain.reset();
+            fill.reset();
+        }
     }
 
     void SeamEngine::processChunk (float* left, float* right, int offset, int n, const Settings& settings) noexcept
@@ -203,38 +222,56 @@ namespace seam::engine
         }
 
         // 2. True bypass: nothing to do and nothing ringing -> do not touch the audio.
-        if (allZero && mix <= 0.0f && chain.isQuiet())
+        if (allZero && mix <= 0.0f && chain.isQuiet() && ! fill.isActive())
             return;
 
         chunkWasBypassed = false;
         std::copy (left, left + n, dryL.begin());
         std::copy (right, right + n, dryR.begin());
 
-        // 3. The chain, split at every drop so the tails are cut exactly on the downbeat sample.
+        // 3. The fill (rendered first: its snares feed the reverb throw, and Replace mutes the incoming drums).
+        std::fill (fillL.begin(), fillL.begin() + n, 0.0f);
+        std::fill (fillR.begin(), fillR.begin() + n, 0.0f);
+        std::fill (dryGain.begin(), dryGain.begin() + n, 1.0f);
+        FillPlayer::Output fillOut { fillL.data(), fillR.data(), dryGain.data() };
+        fill.render (kit, pattern, position, offset, n, effective.data(), std::clamp (settings.amtFill, 0.0f, 1.5f),
+                     settings.replace, fillOut);
+        if (fillOut.snareHit)
+            chain.throwSnare (position.samplesPerQuarter);
+        const bool replacing = settings.replace && std::any_of (dryGain.begin(), dryGain.begin() + n, [] (float g) { return g < 1.0f; });
+
+        // 4. The chain, split at every drop so the tails are cut exactly on the downbeat sample.
         const ChainAmounts amounts { settings.amtFilter, settings.amtReverb, settings.amtStutter, settings.amtDuck };
         int start = 0;
         for (int d = 0; d <= dropCount; ++d)
         {
             const int end = d < dropCount ? drops[static_cast<size_t> (d)] : n;
             if (end > start)
+            {
+                const auto s = static_cast<size_t> (start);
+                ChainExtras extras { fillL.data() + s, fillR.data() + s, replacing ? dryGain.data() + s : nullptr };
                 chain.process (left + start, right + start, end - start, effective.data() + start, ppqs.data() + start,
-                               position.samplesPerQuarter, true, amounts);
+                               position.samplesPerQuarter, true, amounts, extras);
+            }
             if (d < dropCount)
                 chain.cutTails();
             start = end;
         }
 
-        // 4. Dry/wet crossfade in and out of the chain.
+        // 5. Fill on top, then the dry/wet crossfade in and out of the whole thing.
+        const bool fillActive = fill.isActive();
         for (int i = 0; i < n; ++i)
         {
             const auto k = static_cast<size_t> (i);
-            const bool active = effective[k] > 0.0f || ! chain.isQuiet();
+            left[i] += fillL[k];
+            right[i] += fillR[k];
+            const bool active = effective[k] > 0.0f || ! chain.isQuiet() || fillActive;
             mix = active ? std::min (1.0f, mix + mixStep) : std::max (0.0f, mix - mixStep);
             left[i] = dryL[k] * (1.0f - mix) + left[i] * mix;   // exact at both ends of the fade
             right[i] = dryR[k] * (1.0f - mix) + right[i] * mix;
         }
 
-        if (mix <= 0.0f && allZero)
+        if (mix <= 0.0f && allZero && ! fillActive)
         {
             // Fully back to dry: start from a clean slate next time, and hand the dry signal back exactly.
             chain.reset();

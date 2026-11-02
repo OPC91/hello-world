@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cmath>
+#include <functional>
 
 namespace seam::engine::dsp
 {
@@ -51,7 +52,7 @@ namespace seam::engine::dsp
             const float stepped = target + (value - target) * coeff;
             // Snap when close, or when float rounding stops the step making progress (it would stall short of the
             // target forever, which matters for exact results at 0 and 1).
-            value = (stepped == value || std::fabs (stepped - target) < 1.0e-6f) ? target : stepped;
+            value = (std::equal_to<float>() (stepped, value) || std::fabs (stepped - target) < 1.0e-6f) ? target : stepped;
             return value;
         }
     };

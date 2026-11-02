@@ -5,7 +5,12 @@ add_library(seam_engine STATIC
     SeamEngine.h SeamEngine.cpp
     TransitionChain.h TransitionChain.cpp
     dsp/Svf.h
-    dsp/ThrowReverb.h dsp/ThrowReverb.cpp)
+    dsp/ThrowReverb.h dsp/ThrowReverb.cpp
+    fill/Break.h fill/Break.cpp
+    fill/Slicer.h fill/Slicer.cpp
+    fill/FillGenerator.h fill/FillGenerator.cpp
+    fill/FillPlayer.h fill/FillPlayer.cpp
+    fill/MidiExport.h fill/MidiExport.cpp)
 target_include_directories(seam_engine PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/..")
 target_link_libraries(seam_engine PUBLIC exnilo_rt)
 seam_set_warnings(seam_engine)

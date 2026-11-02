@@ -80,6 +80,11 @@ int main (int argc, char* argv[])
         ui.peakLeft = shot.playing ? 0.5f + shot.transition / 300.0f : 0.0f;
         ui.peakRight = ui.peakLeft.load() * 0.9f;
 
+        // Wait for the fill worker to slice the built-in break.
+        for (int wait = 0; wait < 200 && (processor.getFillWorker().getView().peaks.empty()
+                                          || processor.getFillWorker().getView().fillDescription.isEmpty()); ++wait)
+            juce::Thread::sleep (10);
+
         std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
         auto* seamEditor = dynamic_cast<seam::SeamEditor*> (editor.get());
         seamEditor->advanceForSnapshot (1.5f);

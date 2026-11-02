@@ -106,6 +106,7 @@ namespace seam
         complexityAttachment = std::make_unique<SliderAttachment> (params, ids::complexity, complexity);
         fillCard.addAndMakeVisible (newFillButton);
         newFillButton.setTooltip ("Roll a new fill");
+        newFillButton.onClick = [this] { seamProcessor.newFill(); };
         fillCard.addAndMakeVisible (midiDrag);
 
         // Footer
@@ -275,5 +276,15 @@ namespace seam
         autoBarsBox.setEnabled (params.getRawParameterValue (ids::autoMode)->load() > 0.5f);
         autoCurveBox.setEnabled (autoBarsBox.isEnabled());
         updateTagline();
+
+        if (const int version = seamProcessor.getFillWorker().getViewVersion(); version != lastViewVersion)
+        {
+            lastViewVersion = version;
+            breakZone.refresh();
+            const auto description = seamProcessor.getFillWorker().getView().fillDescription;
+            fillCard.description = description;
+            newFillButton.setTooltip ("Roll a new fill. Now: " + description);
+            fillCard.repaint();
+        }
     }
 }

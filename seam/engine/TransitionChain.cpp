@@ -102,7 +102,7 @@ namespace seam::engine
     }
 
     void TransitionChain::process (float* left, float* right, int n, const float* effective, const double* ppq,
-                                   double samplesPerQuarter, bool tempoValid, const ChainAmounts& amounts) noexcept
+                                   double samplesPerQuarter, bool tempoValid, const ChainAmounts& amounts, const ChainExtras& extras) noexcept
     {
         const auto captureSize = static_cast<long long> (captureL.size());
         const float stutterScale = std::clamp (amounts.stutter, 0.0f, 1.5f);
@@ -159,7 +159,7 @@ namespace seam::engine
                 if (division > 0.0)
                 {
                     const double cellSamples = std::min (division * samplesPerQuarter, static_cast<double> (captureSize - 1));
-                    const double intoBeat = phase * samplesPerQuarter;
+                    const double intoBeat = phase * samplesPerQuarter + 1.0e-6;   // epsilon: host positions are rarely exact
                     if (intoBeat < cellSamples)
                     {
                         const auto w = static_cast<long long> (intoBeat);
@@ -206,9 +206,16 @@ namespace seam::engine
                                                            : static_cast<float> (std::exp (-1.0 / (0.04 * sampleRate)));
             const float send = throwGate.next (gateTarget)
                                * sendLevel.next (std::clamp (std::pow (e, 1.3f) * 0.9f * amounts.reverb, 0.0f, 1.4f));
+            if (extras.inputGain != nullptr)
+            {
+                l *= extras.inputGain[i];
+                r *= extras.inputGain[i];
+            }
+            const float sendInL = l + (extras.sendLeft != nullptr ? extras.sendLeft[i] : 0.0f);
+            const float sendInR = r + (extras.sendRight != nullptr ? extras.sendRight[i] : 0.0f);
             float wetL = 0.0f, wetR = 0.0f;
             if (send > 0.0f || ! reverb.isQuiet())
-                reverb.process (l * send, r * send, wetL, wetR);
+                reverb.process (sendInL * send, sendInR * send, wetL, wetR);
 
             if (cuttingTails)
             {

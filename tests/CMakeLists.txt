@@ -2,7 +2,11 @@
 add_executable(SeamTests
     TestHelpers.h
     PhraseTrackerTests.cpp
-    TransitionTests.cpp)
+    TransitionTests.cpp
+    SlicerTests.cpp
+    FillGeneratorTests.cpp
+    FillTimingTests.cpp
+    MidiExportTests.cpp)
 target_link_libraries(SeamTests PRIVATE seam_engine Catch2::Catch2WithMain)
 seam_set_warnings(SeamTests)
 

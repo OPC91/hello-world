@@ -8,6 +8,11 @@ namespace seam
         const juce::Identifier editorNode { "editor" };
         const juce::Identifier themeProp { "theme" };
         const juce::Identifier scaleProp { "scale" };
+        const juce::Identifier breakNode { "break" };
+        const juce::Identifier nameProp { "name" };
+        const juce::Identifier pathProp { "path" };
+        const juce::Identifier dataProp { "data" };
+        const juce::Identifier seedProp { "seed" };
 
         template <typename Array>
         int pick (const Array& values, std::atomic<float>* index)
@@ -38,6 +43,7 @@ namespace seam
             p.amounts[i] = raw (advancedAmounts[i].id);
 
         state.state.getOrCreateChildWithName (editorNode, nullptr).setProperty (themeProp, "drum-and-bass", nullptr);
+        worker.startWorking();
     }
 
     SeamProcessor::~SeamProcessor() = default;
@@ -111,6 +117,10 @@ namespace seam
                     transport.timeSigNumerator = sig->numerator;
                     transport.timeSigDenominator = sig->denominator;
                 }
+                lastBpm.store (transport.bpm);
+                lastNumerator.store (transport.timeSigNumerator);
+                lastDenominator.store (transport.timeSigDenominator);
+                worker.setQuartersPerBar (engine::PhraseTracker::quartersPerBar (transport.timeSigNumerator, transport.timeSigDenominator));
             }
         }
 
@@ -160,7 +170,65 @@ namespace seam
     {
         if (auto xml = getXmlFromBinary (data, sizeInBytes))
             if (xml->hasTagName (state.state.getType()))
+            {
                 state.replaceState (juce::ValueTree::fromXml (*xml));
+                restoreBreakFromState();
+            }
+    }
+
+    //==============================================================================
+    bool SeamProcessor::loadBreakFile (const juce::File& file)
+    {
+        juce::MemoryBlock bytes;
+        if (! file.existsAsFile() || file.getSize() > 256 * 1024 * 1024 || ! file.loadFileAsData (bytes))
+            return false;
+
+        auto node = state.state.getOrCreateChildWithName (breakNode, nullptr);
+        node.setProperty (nameProp, file.getFileNameWithoutExtension(), nullptr);
+        node.setProperty (pathProp, file.getFullPathName(), nullptr);
+        if (bytes.getSize() <= static_cast<size_t> (maxEmbeddedBytes))
+            node.setProperty (dataProp, bytes, nullptr);
+        else
+            node.removeProperty (dataProp, nullptr);
+        worker.loadFromMemory (std::move (bytes), file.getFileNameWithoutExtension(), file.getFullPathName());
+        return true;
+    }
+
+    void SeamProcessor::useBuiltInBreak()
+    {
+        state.state.removeChild (state.state.getChildWithName (breakNode), nullptr);
+        worker.useBuiltIn();
+    }
+
+    void SeamProcessor::newFill()
+    {
+        worker.newFill();
+        state.state.getOrCreateChildWithName (breakNode, nullptr).setProperty (seedProp, static_cast<juce::int64> (worker.getSeed()), nullptr);
+    }
+
+    void SeamProcessor::restoreBreakFromState()
+    {
+        const auto node = state.state.getChildWithName (breakNode);
+        worker.setSeed (static_cast<std::uint64_t> (static_cast<juce::int64> (node.getProperty (seedProp, 1))));
+        if (! node.isValid() || ! (node.hasProperty (dataProp) || node.hasProperty (pathProp)))
+        {
+            worker.useBuiltIn();
+            return;
+        }
+
+        const auto name = node.getProperty (nameProp).toString();
+        const auto path = node.getProperty (pathProp).toString();
+        if (const auto* embedded = node.getProperty (dataProp).getBinaryData(); embedded != nullptr && embedded->getSize() > 0)
+        {
+            worker.loadFromMemory (*embedded, name, path);   // embedded audio wins: the session works on any computer
+            return;
+        }
+        const juce::File file (path);
+        juce::MemoryBlock bytes;
+        if (juce::File::isAbsolutePath (path) && file.existsAsFile() && file.loadFileAsData (bytes))
+            worker.loadFromMemory (std::move (bytes), name, path);
+        else
+            worker.useBuiltIn();
     }
 
     juce::AudioProcessorEditor* SeamProcessor::createEditor() { return new SeamEditor (*this); }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Parameters.h"
+#include "FillWorker.h"
 #include "engine/SeamEngine.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -64,6 +65,19 @@ namespace seam
         juce::AudioProcessorValueTreeState& getState() noexcept { return state; }
         UiState& getUiState() noexcept { return ui; }
 
+        // --- The break and the fill (message thread).
+        /** Loads a dropped audio file; its bytes are embedded in the session (up to 32 MB, else only the path). */
+        bool loadBreakFile (const juce::File&);
+        void useBuiltInBreak();
+        void newFill();
+        FillWorker& getFillWorker() noexcept { return worker; }
+        /** Host tempo and time signature last seen by the audio thread (for the MIDI clip). */
+        double getLastBpm() const noexcept { return lastBpm.load(); }
+        int getLastNumerator() const noexcept { return lastNumerator.load(); }
+        int getLastDenominator() const noexcept { return lastDenominator.load(); }
+
+        static constexpr juce::int64 maxEmbeddedBytes = 32 * 1024 * 1024;
+
         /** Editor-only settings kept in the session (theme, scale). */
         juce::String getThemeId() const;
         void setThemeId (const juce::String&);
@@ -72,10 +86,14 @@ namespace seam
 
     private:
         engine::Settings readSettings() const noexcept;
+        void restoreBreakFromState();
 
         juce::AudioProcessorValueTreeState state;
         engine::SeamEngine engine;
+        FillWorker worker { engine, state };
         UiState ui;
+        std::atomic<double> lastBpm { 174.0 };
+        std::atomic<int> lastNumerator { 4 }, lastDenominator { 4 };
 
         struct ParamPointers
         {

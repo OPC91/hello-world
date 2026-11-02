@@ -14,6 +14,14 @@ namespace seam::engine
         float filter = 1.0f, reverb = 1.0f, stutter = 1.0f, duck = 1.0f;
     };
 
+    /** Extra per-sample inputs to the chain (all optional, may be null). */
+    struct ChainExtras
+    {
+        const float* sendLeft = nullptr;   ///< also sent into the reverb throw (the fill's own snares)
+        const float* sendRight = nullptr;
+        const float* inputGain = nullptr;  ///< applied to the processed drums before the reverb is added (Replace)
+    };
+
     /** The effects TRANSITION drives, all moving together from one value (like Nil2Max's INTENSITY chain):
           1. drum-bus high-pass, sweeping up with rising resonance;
           2. reverb throw: snares (detected in the input, or triggered by the fill) open a send into a big reverb;
@@ -29,7 +37,7 @@ namespace seam::engine
         /** Processes `n` stereo samples in place. `effective` and `ppq` hold one value per sample;
             when `tempoValid` is false the tempo-locked parts (stutter, duck) are off. */
         void process (float* left, float* right, int n, const float* effective, const double* ppq,
-                      double samplesPerQuarter, bool tempoValid, const ChainAmounts&) noexcept;
+                      double samplesPerQuarter, bool tempoValid, const ChainAmounts&, const ChainExtras& = {}) noexcept;
 
         /** Opens the reverb send now (the fill engine calls this for its own snare hits). */
         void throwSnare (double samplesPerQuarter) noexcept;

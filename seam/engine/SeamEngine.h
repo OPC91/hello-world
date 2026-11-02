@@ -2,6 +2,11 @@
 
 #include "PhraseTracker.h"
 #include "TransitionChain.h"
+#include "fill/Break.h"
+#include "fill/FillGenerator.h"
+#include "fill/FillPlayer.h"
+
+#include <exnilo/RealtimeExchange.h>
 
 #include <array>
 
@@ -54,6 +59,13 @@ namespace seam::engine
         /** Processes `numChannels` (1 or 2) channels in place. */
         void process (float* const* channels, int numChannels, int numSamples, const TransportSnapshot&, const Settings&) noexcept;
 
+        /** Hand a new sliced break / fill pattern to the audio thread (any non-realtime thread; lock-free for the
+            audio thread, which picks them up at the start of its next block). */
+        void publishKit (std::unique_ptr<BreakKit> newKit) { kits.publish (std::move (newKit)); }
+        void publishPattern (std::unique_ptr<FillPattern> newPattern) { patterns.publish (std::move (newPattern)); }
+        /** Frees retired kits/patterns. Call regularly from a non-realtime thread. */
+        void collectGarbage() { kits.collectGarbage(); patterns.collectGarbage(); }
+
         const Telemetry& telemetry() const noexcept { return lastTelemetry; }
         const PhrasePosition& lastPosition() const noexcept { return position; }
 
@@ -71,6 +83,11 @@ namespace seam::engine
         PhrasePosition position;
         Telemetry lastTelemetry;
         TransitionChain chain;
+        FillPlayer fill;
+        exnilo::RealtimeExchange<BreakKit> kits;
+        exnilo::RealtimeExchange<FillPattern> patterns;
+        const BreakKit* kit = nullptr;          ///< audio thread's current kit (owned by `kits`)
+        const FillPattern* pattern = nullptr;   ///< audio thread's current pattern (owned by `patterns`)
         double sampleRate = 44100.0;
 
         // Effective transition state.
@@ -85,7 +102,7 @@ namespace seam::engine
         float mix = 0.0f, mixStep = 0.0f;
         bool chunkWasBypassed = true;
 
-        std::array<float, chunkSize> dryL {}, dryR {}, effective {}, monoScratch {};
+        std::array<float, chunkSize> dryL {}, dryR {}, effective {}, monoScratch {}, fillL {}, fillR {}, dryGain {};
         std::array<double, chunkSize> ppqs {};
     };
 }

@@ -27,7 +27,8 @@ namespace seam::test
         return t;
     }
 
-    /** A host that plays continuously from `startPpq`, handing out blocks of varying size. */
+    /** A host that plays continuously, handing out blocks of any size. Like real hosts, it derives the position
+        from a sample counter (so the block size never changes the positions). Assigning `ppq` is a jump. */
     struct FakeHost
     {
         double ppq = 0.0, bpm = 174.0, sampleRate = 48000.0;
@@ -35,11 +36,21 @@ namespace seam::test
 
         TransportSnapshot next (int numSamples)
         {
-            auto t = playingAt (ppq, bpm, sampleRate, numSamples, num, den);
-            ppq += numSamples * bpm / (60.0 * sampleRate);
+            if (ppq != expected)   // the test moved the playhead
+            {
+                base = ppq;
+                samples = 0;
+            }
+            auto t = playingAt (base + static_cast<double> (samples) * bpm / (60.0 * sampleRate), bpm, sampleRate, numSamples, num, den);
+            samples += numSamples;
+            ppq = expected = base + static_cast<double> (samples) * bpm / (60.0 * sampleRate);
             return t;
         }
         double samplesPerQuarter() const { return sampleRate * 60.0 / bpm; }
+
+    private:
+        double base = 0.0, expected = -1.0e300;
+        long long samples = 0;
     };
 }
 

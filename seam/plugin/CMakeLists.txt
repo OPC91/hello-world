@@ -22,7 +22,9 @@ juce_add_plugin(SEAM
 target_sources(SEAM PRIVATE
     PluginProcessor.h PluginProcessor.cpp
     PluginEditor.h PluginEditor.cpp
-    Parameters.h Parameters.cpp)
+    Parameters.h Parameters.cpp
+    FillWorker.h FillWorker.cpp
+    FillComponents.h FillComponents.cpp)
 
 target_include_directories(SEAM PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/..")
 

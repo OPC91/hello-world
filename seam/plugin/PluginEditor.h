@@ -1,12 +1,13 @@
 #pragma once
 
 #include "PluginProcessor.h"
+#include "FillComponents.h"
 
 #include <exnilo_ui/exnilo_ui.h>
 
 namespace seam
 {
-    class SeamEditor final : public exnilo::ScaledEditor, private juce::Timer
+    class SeamEditor final : public exnilo::ScaledEditor, public juce::FileDragAndDropTarget, private juce::Timer
     {
     public:
         explicit SeamEditor (SeamProcessor&);
@@ -17,6 +18,10 @@ namespace seam
 
         /** Steps the UI as if `seconds` had passed (offscreen snapshot tests). */
         void advanceForSnapshot (float seconds);
+
+        // A break dropped anywhere on the editor goes to the fill panel.
+        bool isInterestedInFileDrag (const juce::StringArray& files) override { return breakZone.isInterestedInFileDrag (files); }
+        void filesDropped (const juce::StringArray& files, int x, int y) override { breakZone.filesDropped (files, x, y); }
 
     private:
         void timerCallback() override;
@@ -56,15 +61,19 @@ namespace seam
             void paintOverChildren (juce::Graphics& g) override
             {
                 exnilo::drawCaption (g, "COMPLEXITY", { 598.0f, 102.0f, 120.0f, 18.0f }, juce::Justification::centred);
+                g.setColour (exnilo::palette::dim);
+                g.setFont (exnilo::fonts::regular (13.0f));
+                g.drawText (description, juce::Rectangle<float> (70.0f, 12.0f, 820.0f, 22.0f), juce::Justification::centredLeft, true);
             }
+            juce::String description;
         } fillCard;
-        juce::Component breakZone;
+        BreakZone breakZone { seamProcessor };
         exnilo::Segmented style { choices::style };
         exnilo::Segmented fillLength { juce::StringArray { "1 bar", "2 bars", "4 bars" } };
         exnilo::Segmented fillMode { choices::fillMode };
         juce::Slider complexity { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox };
         juce::TextButton newFillButton { "NEW FILL" };
-        juce::Component midiDrag;
+        MidiDragHandle midiDrag { seamProcessor };
 
         // Footer
         exnilo::PresetBar presetBar;
@@ -80,6 +89,7 @@ namespace seam
         double barsToSeam = 0.0;
         int barInPhrase = 0, phraseBars = 16;
         double lastTick = 0.0;
+        int lastViewVersion = -1;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SeamEditor)
     };
