@@ -2,6 +2,7 @@
 
 #include "PhraseTracker.h"
 #include "TransitionChain.h"
+#include "Vacuum.h"
 #include "fill/Break.h"
 #include "fill/FillGenerator.h"
 #include "fill/FillPlayer.h"
@@ -84,6 +85,7 @@ namespace seam::engine
         Telemetry lastTelemetry;
         TransitionChain chain;
         FillPlayer fill;
+        Vacuum vacuum;
         exnilo::RealtimeExchange<BreakKit> kits;
         exnilo::RealtimeExchange<FillPattern> patterns;
         const BreakKit* kit = nullptr;          ///< audio thread's current kit (owned by `kits`)

@@ -18,6 +18,7 @@ namespace seam::engine
         sampleRate = newSampleRate > 0.0 ? newSampleRate : 44100.0;
         chain.prepare (sampleRate);
         fill.prepare (sampleRate);
+        vacuum.prepare (sampleRate);
         mixStep = static_cast<float> (1.0 / (mixSeconds * sampleRate));
         riseCoeff = std::exp (-1.0 / (riseSeconds * sampleRate));
         reset();
@@ -30,6 +31,7 @@ namespace seam::engine
         lastTelemetry = {};
         chain.reset();
         fill.reset();
+        vacuum.reset();
         manual = 0.0;
         dropPending = false;
         previousEffective = 0.0f;
@@ -191,6 +193,7 @@ namespace seam::engine
         {
             chain.reset();
             fill.reset();
+            vacuum.reset();
         }
     }
 
@@ -222,7 +225,7 @@ namespace seam::engine
         }
 
         // 2. True bypass: nothing to do and nothing ringing -> do not touch the audio.
-        if (allZero && mix <= 0.0f && chain.isQuiet() && ! fill.isActive())
+        if (allZero && mix <= 0.0f && chain.isQuiet() && ! fill.isActive() && ! vacuum.isActive())
             return;
 
         chunkWasBypassed = false;
@@ -235,7 +238,7 @@ namespace seam::engine
         std::fill (dryGain.begin(), dryGain.begin() + n, 1.0f);
         FillPlayer::Output fillOut { fillL.data(), fillR.data(), dryGain.data() };
         fill.render (kit, pattern, position, offset, n, effective.data(), std::clamp (settings.amtFill, 0.0f, 1.5f),
-                     settings.replace, fillOut);
+                     settings.replace, fillOut, settings.vacuum ? settings.vacuumQuarters : 0.0);
         if (fillOut.snareHit)
             chain.throwSnare (position.samplesPerQuarter);
         const bool replacing = settings.replace && std::any_of (dryGain.begin(), dryGain.begin() + n, [] (float g) { return g < 1.0f; });
@@ -271,7 +274,11 @@ namespace seam::engine
             right[i] = dryR[k] * (1.0f - mix) + right[i] * mix;
         }
 
-        if (mix <= 0.0f && allZero && ! fillActive)
+        // 6. The vacuum works on the finished output: true silence before the drop.
+        if (settings.vacuum)
+            vacuum.process (left, right, n, ppqs.data(), effective.data(), position, settings.vacuumQuarters, settings.tapeStop);
+
+        if (mix <= 0.0f && allZero && ! fillActive && ! vacuum.isActive())
         {
             // Fully back to dry: start from a clean slate next time, and hand the dry signal back exactly.
             chain.reset();

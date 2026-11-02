@@ -6,4 +6,6 @@
 #include "widgets/EnergyDisplay.cpp"
 #include "widgets/Widgets.cpp"
 #include "widgets/PresetBar.cpp"
+#include "widgets/AdvancedPanel.cpp"
 #include "editor/ScaledEditor.cpp"
+#include "presets/PresetStore.cpp"

@@ -19,12 +19,21 @@ namespace seam
         {
             return juce::roundToInt (params.getRawParameterValue (id)->load());
         }
+
+        std::vector<exnilo::AdvancedPanel::Item> advancedItems()
+        {
+            std::vector<exnilo::AdvancedPanel::Item> items;
+            for (const auto& a : advancedAmounts)
+                items.push_back ({ a.id, a.name, a.tooltip });
+            return items;
+        }
     }
 
     SeamEditor::SeamEditor (SeamProcessor& p)
         : exnilo::ScaledEditor (p, baseWidth, baseHeight, p.getEditorScale()),
           seamProcessor (p),
-          params (p.getState())
+          params (p.getState()),
+          advanced (p.getState(), advancedItems())
     {
         onScaleChanged = [this] (float s) { seamProcessor.setEditorScale (s); };
 
@@ -48,7 +57,10 @@ namespace seam
         advButton.setClickingTogglesState (true);
         advButton.getProperties().set ("exnilo.radius", 22.0);
         advButton.setTooltip ("Advanced: scale each effect from 0 to 150%");
+        advButton.onClick = [this] { setAdvancedVisible (advButton.getToggleState()); };
         content.addAndMakeVisible (advButton);
+        content.addChildComponent (advanced);
+        advanced.onClose = [this] { setAdvancedVisible (false); };
 
         // Main row
         energy.overlay = [this] (juce::Graphics& g, juce::Rectangle<float> area, const exnilo::GenreTheme& t) { paintCountdown (g, area, t); };
@@ -111,6 +123,9 @@ namespace seam
 
         // Footer
         content.addAndMakeVisible (presetBar);
+        presetBar.onShowMenu = [this] { showPresetMenu(); };
+        presetBar.onPrevious = [this] { stepPreset (-1); };
+        presetBar.onNext = [this] { stepPreset (1); };
         for (auto* label : { &tagline, &hint })
         {
             label->setJustificationType (juce::Justification::centred);
@@ -163,6 +178,7 @@ namespace seam
         newFillButton.setBounds (716, 40, 180, 34);
         midiDrag.setBounds (716, 82, 180, 32);
 
+        advanced.setBounds (24, 84, 912, 300);
         presetBar.setBounds (330, 536, 300, 46);
         tagline.setBounds (230, 588, 500, 22);
         hint.setBounds (180, 612, 600, 20);
@@ -180,7 +196,100 @@ namespace seam
 
     void SeamEditor::updateTagline()
     {
-        tagline.setText (styleTagline (choiceIndex (params, ids::style)), juce::dontSendNotification);
+        const auto presetLine = presetTagline (seamProcessor.getPresetName());
+        tagline.setText (presetLine.isNotEmpty() ? presetLine : juce::String (styleTagline (choiceIndex (params, ids::style))),
+                         juce::dontSendNotification);
+    }
+
+    void SeamEditor::setAdvancedVisible (bool shouldShow)
+    {
+        advanced.setVisible (shouldShow);
+        advButton.setToggleState (shouldShow, juce::dontSendNotification);
+        for (auto* c : std::initializer_list<juce::Component*> { &energy, &knob, &options })
+            c->setVisible (! shouldShow);
+        if (shouldShow)
+            advanced.toFront (false);
+    }
+
+    void SeamEditor::stepPreset (int delta)
+    {
+        auto& store = seamProcessor.getPresets();
+        const int count = static_cast<int> (store.getAll().size());
+        if (count == 0)
+            return;
+        const int current = store.indexOf (seamProcessor.getPresetName());
+        seamProcessor.loadPreset (current < 0 ? 0 : (current + delta + count) % count);
+        presetCheckCountdown = 0;
+    }
+
+    void SeamEditor::showPresetMenu()
+    {
+        auto& store = seamProcessor.getPresets();
+        store.rescan();
+        const auto current = seamProcessor.getPresetName();
+        const auto& all = store.getAll();
+
+        juce::PopupMenu menu;
+        juce::String section;
+        bool hasUser = false;
+        for (size_t i = 0; i < all.size(); ++i)
+        {
+            const auto& preset = all[i];
+            if (preset.category != section)
+            {
+                section = preset.category;
+                menu.addSectionHeader (section);
+            }
+            hasUser = hasUser || ! preset.isFactory;
+            menu.addItem (preset.name, true, preset.name == current,
+                          [this, index = static_cast<int> (i)] { seamProcessor.loadPreset (index); presetCheckCountdown = 0; });
+        }
+        if (! hasUser)
+        {
+            menu.addSectionHeader ("User");
+            menu.addItem ("(save your own with Save preset as...)", false, false, nullptr);
+        }
+
+        menu.addSeparator();
+        menu.addItem ("Save preset as...", [this] { savePresetAs(); });
+        const int index = store.indexOf (current);
+        if (index >= 0 && ! all[static_cast<size_t> (index)].isFactory)
+            menu.addItem ("Delete \"" + current + "\"", [this, index]
+            {
+                auto& s = seamProcessor.getPresets();
+                if (index < static_cast<int> (s.getAll().size()))
+                    s.deleteUser (s.getAll()[static_cast<size_t> (index)]);
+            });
+        menu.addItem ("Open presets folder", [this]
+        {
+            const auto folder = seamProcessor.getPresets().getUserFolder();
+            folder.createDirectory();
+            folder.revealToUser();
+        });
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&presetBar).withMinimumWidth (presetBar.getWidth()));
+    }
+
+    void SeamEditor::savePresetAs()
+    {
+        auto* window = new juce::AlertWindow ("Save preset", "Name your preset. It is saved in " +
+                                              seamProcessor.getPresets().getUserFolder().getFullPathName(),
+                                              juce::MessageBoxIconType::NoIcon, this);
+        window->addTextEditor ("name", seamProcessor.getPresetName() + " (mine)");
+        window->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
+        window->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+        window->setLookAndFeel (&getExniloLookAndFeel());
+        window->enterModalState (true, juce::ModalCallbackFunction::create (
+            [safe = juce::Component::SafePointer<SeamEditor> (this), window] (int result)
+            {
+                if (safe == nullptr || result != 1)
+                    return;
+                const auto name = window->getTextEditorContents ("name");
+                const auto saved = safe->seamProcessor.getPresets().saveUser (name, safe->params);
+                if (saved.wasOk())
+                    safe->seamProcessor.setPresetName (exnilo::PresetStore::sanitiseName (name));
+                else
+                    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Could not save", saved.getErrorMessage());
+            }), true);
     }
 
     void SeamEditor::paintCountdown (juce::Graphics& g, juce::Rectangle<float> area, const exnilo::GenreTheme& t)
@@ -276,6 +385,16 @@ namespace seam
         autoBarsBox.setEnabled (params.getRawParameterValue (ids::autoMode)->load() > 0.5f);
         autoCurveBox.setEnabled (autoBarsBox.isEnabled());
         updateTagline();
+
+        if (--presetCheckCountdown <= 0)
+        {
+            presetCheckCountdown = 10;
+            const auto name = seamProcessor.getPresetName();
+            auto& store = seamProcessor.getPresets();
+            const int index = store.indexOf (name);
+            const bool modified = index >= 0 && ! store.matches (store.getAll()[static_cast<size_t> (index)], params);
+            presetBar.setPresetName (name, modified);
+        }
 
         if (const int version = seamProcessor.getFillWorker().getViewVersion(); version != lastViewVersion)
         {

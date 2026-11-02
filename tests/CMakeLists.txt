@@ -6,7 +6,8 @@ add_executable(SeamTests
     SlicerTests.cpp
     FillGeneratorTests.cpp
     FillTimingTests.cpp
-    MidiExportTests.cpp)
+    MidiExportTests.cpp
+    VacuumTests.cpp)
 target_link_libraries(SeamTests PRIVATE seam_engine Catch2::Catch2WithMain)
 seam_set_warnings(SeamTests)
 

@@ -13,6 +13,7 @@ namespace seam
         const juce::Identifier pathProp { "path" };
         const juce::Identifier dataProp { "data" };
         const juce::Identifier seedProp { "seed" };
+        const juce::Identifier presetProp { "preset" };
 
         template <typename Array>
         int pick (const Array& values, std::atomic<float>* index)
@@ -158,6 +159,26 @@ namespace seam
     void SeamProcessor::setEditorScale (float scale)
     {
         state.state.getOrCreateChildWithName (editorNode, nullptr).setProperty (scaleProp, scale, nullptr);
+    }
+
+    juce::String SeamProcessor::getPresetName() const
+    {
+        return state.state.getChildWithName (editorNode).getProperty (presetProp, factoryPresets().front().name).toString();
+    }
+
+    void SeamProcessor::setPresetName (const juce::String& name)
+    {
+        state.state.getOrCreateChildWithName (editorNode, nullptr).setProperty (presetProp, name, nullptr);
+    }
+
+    void SeamProcessor::loadPreset (int index)
+    {
+        const auto& all = presets.getAll();
+        if (index < 0 || index >= static_cast<int> (all.size()))
+            return;
+        const auto& preset = all[static_cast<size_t> (index)];
+        presets.apply (preset, state);
+        setPresetName (preset.name);
     }
 
     void SeamProcessor::getStateInformation (juce::MemoryBlock& destData)

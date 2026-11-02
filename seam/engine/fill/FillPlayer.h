@@ -32,9 +32,10 @@ namespace seam::engine
         };
 
         /** Renders samples [offset, offset + n) of the block. `effective` holds the effective TRANSITION per sample
-            (the fill only starts hits while it is above 0 and fades in over the first 25%). */
+            (the fill only starts hits while it is above 0 and fades in over the first 25%). `endOffset` (quarters)
+            makes the fill finish that long before the seam (the vacuum's gap). */
         void render (const BreakKit*, const FillPattern*, const PhrasePosition&, int offset, int n, const float* effective,
-                     float level, bool replace, Output&) noexcept;
+                     float level, bool replace, Output&, double endOffset = 0.0) noexcept;
 
         /** Fast fade of every voice (loop/seek). */
         void killAll() noexcept;

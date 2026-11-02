@@ -4,6 +4,7 @@ add_library(seam_engine STATIC
     PhraseTracker.h PhraseTracker.cpp
     SeamEngine.h SeamEngine.cpp
     TransitionChain.h TransitionChain.cpp
+    Vacuum.h Vacuum.cpp
     dsp/Svf.h
     dsp/ThrowReverb.h dsp/ThrowReverb.cpp
     fill/Break.h fill/Break.cpp

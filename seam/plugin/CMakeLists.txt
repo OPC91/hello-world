@@ -24,7 +24,8 @@ target_sources(SEAM PRIVATE
     PluginEditor.h PluginEditor.cpp
     Parameters.h Parameters.cpp
     FillWorker.h FillWorker.cpp
-    FillComponents.h FillComponents.cpp)
+    FillComponents.h FillComponents.cpp
+    Presets.h Presets.cpp)
 
 target_include_directories(SEAM PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/..")
 

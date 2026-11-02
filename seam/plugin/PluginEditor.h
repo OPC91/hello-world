@@ -16,6 +16,8 @@ namespace seam
         static constexpr int baseWidth = 960;
         static constexpr int baseHeight = 640;
 
+        void setAdvancedVisible (bool);
+
         /** Steps the UI as if `seconds` had passed (offscreen snapshot tests). */
         void advanceForSnapshot (float seconds);
 
@@ -29,6 +31,10 @@ namespace seam
         void applyTheme (const juce::String& id);
         void paintCountdown (juce::Graphics&, juce::Rectangle<float> area, const exnilo::GenreTheme&);
         void updateTagline();
+        void showPresetMenu();
+        void stepPreset (int delta);
+        void savePresetAs();
+
 
         using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
         using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
@@ -75,6 +81,9 @@ namespace seam
         juce::TextButton newFillButton { "NEW FILL" };
         MidiDragHandle midiDrag { seamProcessor };
 
+        // Advanced (over the main row when ADV is on)
+        exnilo::AdvancedPanel advanced;
+
         // Footer
         exnilo::PresetBar presetBar;
         juce::Label tagline, hint;
@@ -90,6 +99,7 @@ namespace seam
         int barInPhrase = 0, phraseBars = 16;
         double lastTick = 0.0;
         int lastViewVersion = -1;
+        int presetCheckCountdown = 0;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SeamEditor)
     };

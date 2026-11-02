@@ -34,7 +34,63 @@ namespace
         float transition;
         bool playing;
         double barsToSeam;
+        bool advanced = false;
     };
+
+    int fail (const juce::String& message)
+    {
+        std::cout << "FAILED: " << message << "\n";
+        return 1;
+    }
+
+    /** Every factory preset loads, is reported unmodified, and a change marks it modified; state round-trips. */
+    int presetChecks()
+    {
+        int failures = 0;
+        seam::SeamProcessor processor;
+        auto& store = processor.getPresets();
+        int factoryCount = 0;
+        for (size_t i = 0; i < store.getAll().size(); ++i)
+        {
+            const auto& preset = store.getAll()[i];
+            if (! preset.isFactory)
+                continue;
+            ++factoryCount;
+            processor.loadPreset (static_cast<int> (i));
+            if (processor.getPresetName() != preset.name) failures += fail ("preset name not set: " + preset.name);
+            if (! store.matches (preset, processor.getState())) failures += fail ("preset not matching after load: " + preset.name);
+            const auto style = seam::choices::style[juce::roundToInt (processor.getState().getRawParameterValue (seam::ids::style)->load())];
+            if (style != preset.category) failures += fail ("preset style mismatch: " + preset.name);
+        }
+        if (factoryCount != 12) failures += fail ("expected 12 factory presets, got " + juce::String (factoryCount));
+
+        // First preset = the defaults.
+        seam::SeamProcessor fresh;
+        if (! fresh.getPresets().matches (fresh.getPresets().getAll().front(), fresh.getState()))
+            failures += fail ("defaults differ from the first factory preset");
+
+        // Modified detection.
+        processor.loadPreset (3);
+        auto* complexity = processor.getState().getParameter (seam::ids::complexity);
+        complexity->setValueNotifyingHost (complexity->getValue() > 0.5f ? 0.1f : 0.9f);
+        if (store.matches (store.getAll()[3], processor.getState())) failures += fail ("modified preset still matches");
+
+        // State round trip keeps parameters, preset name, theme and the seed.
+        processor.setThemeId ("techno");
+        processor.newFill();
+        processor.newFill();
+        juce::MemoryBlock saved;
+        processor.getStateInformation (saved);
+        seam::SeamProcessor restored;
+        restored.setStateInformation (saved.getData(), static_cast<int> (saved.getSize()));
+        if (restored.getPresetName() != processor.getPresetName()) failures += fail ("preset name not restored");
+        if (restored.getThemeId() != "techno") failures += fail ("theme not restored");
+        if (restored.getFillWorker().getSeed() != processor.getFillWorker().getSeed()) failures += fail ("seed not restored");
+        if (std::abs (restored.getState().getParameter (seam::ids::complexity)->getValue() - complexity->getValue()) > 1.0e-4f)
+            failures += fail ("parameters not restored");
+        std::cout << (failures == 0 ? "presets and state: OK\n" : "presets and state: FAILED\n");
+        return failures;
+    }
 }
 
 int main (int argc, char* argv[])
@@ -60,6 +116,7 @@ int main (int argc, char* argv[])
         { "seam-dubstep",   "dubstep",       1.0f,  75.0f,  true,  3.1 },
         { "seam-house",     "house",         1.0f,  80.0f,  true,  9.0 },
         { "seam-futurebass","future-bass",   1.0f, 100.0f,  true,  0.9 },
+        { "seam-advanced",  "drum-and-bass", 1.0f,  60.0f,  true,  5.0, true },
     };
 
     int failures = 0;
@@ -87,6 +144,8 @@ int main (int argc, char* argv[])
 
         std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
         auto* seamEditor = dynamic_cast<seam::SeamEditor*> (editor.get());
+        if (shot.advanced)
+            seamEditor->setAdvancedVisible (true);
         seamEditor->advanceForSnapshot (1.5f);
 
         const auto image = editor->createComponentSnapshot (editor->getLocalBounds(), true, 1.0f);
@@ -95,5 +154,6 @@ int main (int argc, char* argv[])
         std::cout << (ok ? "wrote " : "FAILED ") << file.getFullPathName() << " (" << image.getWidth() << "x" << image.getHeight() << ")\n";
         failures += ok ? 0 : 1;
     }
+    failures += presetChecks();
     return failures == 0 ? 0 : 1;
 }

@@ -81,7 +81,7 @@ namespace seam::engine
     }
 
     void FillPlayer::render (const BreakKit* kit, const FillPattern* pattern, const PhrasePosition& pos, int offset, int n,
-                             const float* effective, float level, bool replace, Output& out) noexcept
+                             const float* effective, float level, bool replace, Output& out, double endOffset) noexcept
     {
         const bool playable = kit != nullptr && pattern != nullptr && ! kit->empty() && ! pattern->events.empty()
                               && pattern->kitId == kit->id && pos.valid;
@@ -105,6 +105,7 @@ namespace seam::engine
             {
                 const double seam = static_cast<double> (k + 1) * phraseLength;
                 const double fillStart = seam - fillLength;
+                const double stop = seam - std::clamp (endOffset, 0.0, fillLength);   // where the fill must be silent
                 for (size_t i = 0; i < pattern->events.size() && triggerCount < maxTriggersPerChunk; ++i)
                 {
                     const auto& e = pattern->events[i];
@@ -113,8 +114,11 @@ namespace seam::engine
 
                     double at = fillStart + e.ppq;
                     long long skip = 0;
+                    if (! e.reverse && at >= stop)
+                        continue;   // falls in the vacuum
                     if (e.reverse)
                     {
+                        at = stop;   // reversed hits end where the fill ends
                         // Starts one slice-length before its end; clipped to the window start if longer than the fill.
                         const double seconds = static_cast<double> (kit->slices[static_cast<size_t> (e.slice)].length) / kit->sampleRate;
                         // ...and finishes just before the seam's fade, so its peak (the original attack) is not softened.
@@ -132,7 +136,7 @@ namespace seam::engine
                     const long long s = std::clamp (pos.sampleAt (at) - offset, 0LL, static_cast<long long> (n - 1));
                     if (effective[s] <= 0.0f)
                         continue;   // the fill only plays while TRANSITION is up
-                    triggers[static_cast<size_t> (triggerCount++)] = { static_cast<int> (s), static_cast<int> (i), seam, skip };
+                    triggers[static_cast<size_t> (triggerCount++)] = { static_cast<int> (s), static_cast<int> (i), stop, skip };
                 }
             }
             // Order by sample (insertion sort: a handful of items).

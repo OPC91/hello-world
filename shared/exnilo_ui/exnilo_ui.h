@@ -19,10 +19,15 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_gui_extra/juce_gui_extra.h>
 
+#include <map>
+#include <vector>
+
 #include "theme/ExniloTheme.h"
 #include "theme/ExniloLookAndFeel.h"
 #include "widgets/HeroKnob.h"
 #include "widgets/EnergyDisplay.h"
 #include "widgets/Widgets.h"
 #include "widgets/PresetBar.h"
+#include "widgets/AdvancedPanel.h"
 #include "editor/ScaledEditor.h"
+#include "presets/PresetStore.h"

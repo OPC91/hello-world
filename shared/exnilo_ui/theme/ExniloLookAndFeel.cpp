@@ -329,10 +329,10 @@ namespace exnilo
         g.setGradientFill (juce::ColourGradient (theme->accentA, track.getX(), 0.0f, theme->accentB, track.getRight(), 0.0f, false));
         g.fillRoundedRectangle (filled, h * 0.5f);
 
-        // Marker at the preset's design value (100% of a 0-150% range sits at two thirds).
+        // Marker at the preset's design value ("exnilo.unityValue", e.g. 100 on a 0-150% slider).
         if (slider.getProperties().getWithDefault ("exnilo.markUnity", false))
         {
-            const float unityX = static_cast<float> (slider.getPositionOfValue (1.0));
+            const float unityX = static_cast<float> (slider.getPositionOfValue (static_cast<double> (slider.getProperties().getWithDefault ("exnilo.unityValue", 1.0))));
             g.setColour (palette::ink.withAlpha (0.35f));
             g.fillRect (juce::Rectangle<float> (1.5f, h + 8.0f).withCentre ({ unityX, track.getCentreY() }));
         }

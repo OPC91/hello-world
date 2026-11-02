@@ -91,3 +91,28 @@ Defaults and judgement calls, with reasons. Newest at the bottom of each section
   start one slice-length before the seam. The clip is exactly the fill's length.
 - Session state: the dropped file's bytes are embedded (up to 32 MB; base64 in the state XML) plus its path. On load the
   embedded audio wins (the session works on any computer); otherwise the path; otherwise the built-in break.
+
+## Vacuum
+- Works on the finished output (drums, fill, reverb), so the drop lands in true silence. The gap [seam - gap, seam)
+  fades out over 1.5 ms from its start and is exactly 0 after that; audio is back from the seam's first sample (0.3 ms
+  fade-in). Only while TRANSITION (effective) is above 0, so 0% stays a bypass.
+- Tape stop: the final time-signature beat before the gap is replayed from a ring buffer at a speed falling linearly
+  from 1 to 0 (pitch falls with it). 4 s ring buffer, sized in prepare().
+- With the vacuum on, the fill finishes at the gap start (hits inside the gap are skipped; the reversed snare ends at
+  the gap) instead of being swallowed by it.
+
+## Presets
+- 12 factory presets, 3 per style: Liquid Glide (= the parameter defaults), Rolling Silk, Sunset Lift; Neuro Charge,
+  Reese Tear, Halftime Pressure; Amen Rinse, Rewind Selecta, Junglist Roll; Jump-Up Wind, Bounce Spring,
+  Dancefloor Detonator.
+- Presets store everything except TRANSITION (the performance knob) and the phrase length (belongs to the arrangement).
+- User presets: XML in %APPDATA%\Exnilo\SEAM\Presets (shared PresetStore, same layout as Nil2Max's documented
+  %APPDATA%\Exnilo\Nil2Max). Presets are internal, not host programs (getNumPrograms() = 1), so hosts that restore
+  per-program state (FL Studio) cannot swap state behind the plugin's back.
+- The preset bar shows "*" when the current values differ from the loaded preset. Preset name, theme, editor scale,
+  seed and the break are saved in the session.
+- The preset tagline replaces the style tagline under the preset bar when a factory preset is loaded.
+
+## Advanced panel
+- Filter, Reverb, Stutter, Duck and Fill, each 0-150% of the preset's design (double-click = 100%), with a reset
+  button. Shown over the main row while ADV is on (as an overlay, so the rest of the UI keeps its place).

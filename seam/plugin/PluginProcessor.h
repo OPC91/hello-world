@@ -2,6 +2,7 @@
 
 #include "Parameters.h"
 #include "FillWorker.h"
+#include "Presets.h"
 #include "engine/SeamEngine.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -78,6 +79,12 @@ namespace seam
 
         static constexpr juce::int64 maxEmbeddedBytes = 32 * 1024 * 1024;
 
+        // --- Presets (message thread).
+        exnilo::PresetStore& getPresets() noexcept { return presets; }
+        juce::String getPresetName() const;
+        void loadPreset (int index);
+        void setPresetName (const juce::String&);
+
         /** Editor-only settings kept in the session (theme, scale). */
         juce::String getThemeId() const;
         void setThemeId (const juce::String&);
@@ -91,6 +98,7 @@ namespace seam
         juce::AudioProcessorValueTreeState state;
         engine::SeamEngine engine;
         FillWorker worker { engine, state };
+        exnilo::PresetStore presets { "SEAM", presetParameterIds(), factoryPresets() };
         UiState ui;
         std::atomic<double> lastBpm { 174.0 };
         std::atomic<int> lastNumerator { 4 }, lastDenominator { 4 };
