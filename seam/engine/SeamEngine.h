@@ -1,6 +1,9 @@
 #pragma once
 
 #include "PhraseTracker.h"
+#include "TransitionChain.h"
+
+#include <array>
 
 namespace seam::engine
 {
@@ -40,7 +43,8 @@ namespace seam::engine
 
     /** The whole SEAM process: phrase tracking, the TRANSITION chain, fills and vacuum.
 
-        Real-time safe: prepare() allocates everything; process() never allocates, locks or frees. */
+        At an effective TRANSITION of 0, with nothing ringing, the audio is not touched at all (true bypass, bit for
+        bit). Real-time safe: prepare() allocates everything; process() never allocates, locks or frees. */
     class SeamEngine
     {
     public:
@@ -53,11 +57,35 @@ namespace seam::engine
         const Telemetry& telemetry() const noexcept { return lastTelemetry; }
         const PhrasePosition& lastPosition() const noexcept { return position; }
 
+        /** The auto-mode ramp at a position (0 outside the ramp; drops to 0 exactly on the seam). */
+        static float autoRampAt (double ppq, const PhrasePosition&, const Settings&) noexcept;
+
+        static constexpr int chunkSize = 256;
+
     private:
+        void processStopped (float* left, float* right, int numSamples, const Settings&) noexcept;
+        void processChunk (float* left, float* right, int offset, int n, const Settings&) noexcept;
+        void updateManual (float target, double ppq, bool atDownbeat) noexcept;
+
         PhraseTracker tracker;
         PhrasePosition position;
         Telemetry lastTelemetry;
+        TransitionChain chain;
         double sampleRate = 44100.0;
-        int maxBlock = 0;
+
+        // Effective transition state.
+        double manual = 0.0;          ///< the knob after the downbeat snap (double: a float smoother stalls short of its target)
+        bool dropPending = false;     ///< a big decrease is waiting for the next downbeat
+        float previousEffective = 0.0f;
+        long long previousBar = 0;
+        bool haveBar = false;
+        double riseCoeff = 0.0;
+
+        // Dry/wet crossfade (so entering and leaving the chain never clicks).
+        float mix = 0.0f, mixStep = 0.0f;
+        bool chunkWasBypassed = true;
+
+        std::array<float, chunkSize> dryL {}, dryR {}, effective {}, monoScratch {};
+        std::array<double, chunkSize> ppqs {};
     };
 }

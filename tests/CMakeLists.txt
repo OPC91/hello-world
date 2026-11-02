@@ -1,7 +1,8 @@
 # Engine tests link only seam_engine (never JUCE).
 add_executable(SeamTests
     TestHelpers.h
-    PhraseTrackerTests.cpp)
+    PhraseTrackerTests.cpp
+    TransitionTests.cpp)
 target_link_libraries(SeamTests PRIVATE seam_engine Catch2::Catch2WithMain)
 seam_set_warnings(SeamTests)
 
