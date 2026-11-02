@@ -2,6 +2,10 @@ set(SEAM_COMPANY_NAME     "Exnilo")
 set(SEAM_MANUFACTURER     "Exnl")
 set(SEAM_BUNDLE_ID_PREFIX "uk.co.exnilo")
 
+# Lemon Squeezy ids for licence activation (from the store dashboard). Empty = demo-only build.
+set(SEAM_LEMON_STORE_ID   "" CACHE STRING "Lemon Squeezy store id")
+set(SEAM_LEMON_PRODUCT_ID "" CACHE STRING "Lemon Squeezy product id for SEAM")
+
 juce_add_plugin(SEAM
     PRODUCT_NAME                "SEAM"
     COMPANY_NAME                "${SEAM_COMPANY_NAME}"
@@ -17,6 +21,7 @@ juce_add_plugin(SEAM
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     COPY_PLUGIN_AFTER_BUILD     FALSE
     VST3_CATEGORIES             Fx Dynamics
+    NEEDS_CURL                  TRUE
     VERSION                     ${PROJECT_VERSION})
 
 target_sources(SEAM PRIVATE
@@ -31,7 +36,8 @@ target_include_directories(SEAM PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_C
 
 target_compile_definitions(SEAM PUBLIC
     JUCE_WEB_BROWSER=0
-    JUCE_USE_CURL=0
+    SEAM_LEMON_STORE_ID="${SEAM_LEMON_STORE_ID}"
+    SEAM_LEMON_PRODUCT_ID="${SEAM_LEMON_PRODUCT_ID}"
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0
     JUCE_USE_FLAC=1

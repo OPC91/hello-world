@@ -38,8 +38,19 @@ namespace seam
         onScaleChanged = [this] (float s) { seamProcessor.setEditorScale (s); };
 
         // Header
-        wordmark.setTooltip ("SEAM by Exnilo");
+        wordmark.setTooltip ("SEAM by Exnilo: licence and about");
+        wordmark.onClick = [this] { showLicenceMenu(); };
         content.addAndMakeVisible (wordmark);
+        demoButton.getProperties().set ("exnilo.accent", true);
+        demoButton.setTooltip ("Demo mode: the audio drops out for 2 seconds every 40 seconds. Click to activate.");
+        demoButton.onClick = [this]
+        {
+            juce::PopupMenu menu;
+            menu.addItem ("Enter licence key...", [this] { enterLicenceKey(); });
+            menu.addItem ("Buy SEAM", [this] { juce::URL (seamProcessor.getLicensing().getConfig().buyUrl).launchInDefaultBrowser(); });
+            menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&demoButton));
+        };
+        content.addChildComponent (demoButton);
 
         int itemId = 1;
         for (const auto& theme : exnilo::themes::all())
@@ -153,6 +164,7 @@ namespace seam
     void SeamEditor::layout()
     {
         wordmark.setBounds (30, 18, 320, 44);
+        demoButton.setBounds (368, 26, 168, 30);
         themeBox.setBounds (560, 18, 230, 46);
         advButton.setBounds (804, 18, 128, 46);
 
@@ -209,6 +221,59 @@ namespace seam
             c->setVisible (! shouldShow);
         if (shouldShow)
             advanced.toFront (false);
+    }
+
+    void SeamEditor::showLicenceMenu()
+    {
+        auto& licensing = seamProcessor.getLicensing();
+        const auto licence = licensing.getState();
+        juce::PopupMenu menu;
+        menu.addSectionHeader ("SEAM " + juce::String (JucePlugin_VersionString) + " by Exnilo");
+        if (licence.licensed)
+        {
+            menu.addItem ("Licensed" + (licence.customerName.isNotEmpty() ? " to " + licence.customerName : juce::String())
+                              + (licence.instanceName.isNotEmpty() ? " on " + licence.instanceName : juce::String()), false, false, nullptr);
+            menu.addItem ("Deactivate this computer", [this]
+            {
+                seamProcessor.getLicensing().deactivate ([] (juce::Result r)
+                {
+                    juce::AlertWindow::showMessageBoxAsync (r.wasOk() ? juce::MessageBoxIconType::InfoIcon : juce::MessageBoxIconType::WarningIcon,
+                                                            "SEAM", r.wasOk() ? "This computer is deactivated. You can now activate SEAM on another one."
+                                                                              : r.getErrorMessage());
+                });
+            });
+        }
+        else
+        {
+            menu.addItem ("Enter licence key...", [this] { enterLicenceKey(); });
+            menu.addItem ("Buy SEAM", [this] { juce::URL (seamProcessor.getLicensing().getConfig().buyUrl).launchInDefaultBrowser(); });
+        }
+        menu.addSeparator();
+        menu.addItem ("Exnilo website", [] { juce::URL ("https://exnilo.co.uk").launchInDefaultBrowser(); });
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&wordmark));
+    }
+
+    void SeamEditor::enterLicenceKey()
+    {
+        auto* window = new juce::AlertWindow ("Activate SEAM", "Paste the licence key from your order email. You need to be online once; "
+                                              "after that SEAM works offline. A licence covers 2 computers.",
+                                              juce::MessageBoxIconType::NoIcon, this);
+        window->addTextEditor ("key", {});
+        window->addButton ("Activate", 1, juce::KeyPress (juce::KeyPress::returnKey));
+        window->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+        window->setLookAndFeel (&getExniloLookAndFeel());
+        window->enterModalState (true, juce::ModalCallbackFunction::create (
+            [safe = juce::Component::SafePointer<SeamEditor> (this), window] (int result)
+            {
+                if (safe == nullptr || result != 1)
+                    return;
+                safe->seamProcessor.getLicensing().activate (window->getTextEditorContents ("key"), [] (juce::Result r)
+                {
+                    juce::AlertWindow::showMessageBoxAsync (r.wasOk() ? juce::MessageBoxIconType::InfoIcon : juce::MessageBoxIconType::WarningIcon,
+                                                            "SEAM", r.wasOk() ? "Thank you! SEAM is activated: the demo dropouts are gone."
+                                                                              : r.getErrorMessage());
+                });
+            }), true);
     }
 
     void SeamEditor::stepPreset (int delta)
@@ -380,6 +445,7 @@ namespace seam
         ui.takePeaks (l, r);
         meter.push (l, r, dt);
 
+        demoButton.setVisible (! seamProcessor.getLicensing().isLicensed());
         vacuumSize.setEnabled (params.getRawParameterValue (ids::vacuum)->load() > 0.5f);
         tapeStopToggle.setEnabled (vacuumSize.isEnabled());
         autoBarsBox.setEnabled (params.getRawParameterValue (ids::autoMode)->load() > 0.5f);

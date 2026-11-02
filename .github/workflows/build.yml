@@ -1,0 +1,76 @@
+name: Build and validate
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    name: Windows (VST3, pluginval 10, installer)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64 -DSEAM_LEMON_STORE_ID="${{ vars.SEAM_LEMON_STORE_ID }}" -DSEAM_LEMON_PRODUCT_ID="${{ vars.SEAM_LEMON_PRODUCT_ID }}"
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Unit and plugin tests
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: pluginval (strictness 10)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Windows.zip -OutFile pluginval.zip
+          Expand-Archive pluginval.zip -DestinationPath pluginval
+          ./scripts/run-pluginval.ps1 -Strictness 10 -Pluginval "$PWD/pluginval/pluginval.exe"
+
+      - name: Installer and zip
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path CMakeLists.txt -Pattern 'project\(SEAM VERSION ([0-9.]+)').Matches[0].Groups[1].Value
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          & $iscc "/DAppVersion=$version" "/DBuildDir=$PWD\build\seam\plugin\SEAM_artefacts\Release" installer\SEAM.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Compress-Archive -Path build\seam\plugin\SEAM_artefacts\Release\VST3\SEAM.vst3 -DestinationPath SEAM-Windows-VST3.zip
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: SEAM-Windows
+          path: |
+            installer/Output/SEAM-Windows-Setup.exe
+            SEAM-Windows-VST3.zip
+            pluginval-logs/
+          if-no-files-found: warn
+
+  linux:
+    name: Linux (tests, pluginval 10)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libasound2-dev libfreetype-dev libfontconfig1-dev libx11-dev libxcomposite-dev \
+            libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev libcurl4-openssl-dev xvfb
+
+      - name: Configure and build
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+
+      - name: Unit and plugin tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: pluginval (strictness 10)
+        run: |
+          curl -sSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Linux.zip
+          unzip -q pluginval.zip -d pluginval
+          chmod +x pluginval/pluginval
+          PLUGINVAL="$PWD/pluginval/pluginval" xvfb-run -a scripts/run-pluginval.sh 10

@@ -43,6 +43,42 @@ namespace
         return 1;
     }
 
+    /** Lemon Squeezy replies (shapes from their License API docs) are read correctly. */
+    int licenceChecks()
+    {
+        int failures = 0;
+        const exnilo::LicenceConfig config { "SEAM", "11", "44", "https://exnilo.co.uk/seam/", 2 };
+        auto parse = [&] (const char* json, exnilo::LicenceState& state)
+        {
+            return exnilo::Licensing::parseActivation (juce::JSON::parse (juce::String (json)), config, state);
+        };
+
+        exnilo::LicenceState ok;
+        ok.key = "KEY";
+        const auto good = parse (R"({"activated":true,"error":null,"license_key":{"id":1,"status":"active","key":"38B1-KEY","activation_limit":2,"activation_usage":1},
+                                     "instance":{"id":"47596ad9-a811","name":"STUDIO-PC"},
+                                     "meta":{"store_id":11,"product_id":44,"product_name":"SEAM","customer_name":"Sam Seam"}})", ok);
+        if (! good.wasOk() || ! ok.licensed || ok.instanceId != "47596ad9-a811" || ok.customerName != "Sam Seam" || ok.key != "38B1-KEY")
+            failures += fail ("activation success not parsed: " + good.getErrorMessage());
+
+        exnilo::LicenceState s;
+        if (! parse (R"({"activated":false,"error":"This license key has reached the activation limit.","meta":{"store_id":11,"product_id":44}})", s)
+                  .getErrorMessage().contains ("maximum number of computers"))
+            failures += fail ("activation limit message");
+        if (parse (R"({"activated":false,"error":"license_key not found."})", s).getErrorMessage() != "That licence key wasn't recognised.")
+            failures += fail ("unknown key message");
+        if (! parse (R"({"activated":true,"license_key":{"status":"active","key":"K"},"instance":{"id":"i"},"meta":{"store_id":11,"product_id":99}})", s)
+                  .getErrorMessage().contains ("different product"))
+            failures += fail ("another product's key accepted");
+        if (parse ("not json", s).wasOk())
+            failures += fail ("garbage accepted");
+        if (! exnilo::Licensing::parseDeactivation (juce::JSON::parse (R"({"deactivated":true})")).wasOk())
+            failures += fail ("deactivation not parsed");
+
+        std::cout << (failures == 0 ? "licence replies: OK\n" : "licence replies: FAILED\n");
+        return failures;
+    }
+
     /** Every factory preset loads, is reported unmodified, and a change marks it modified; state round-trips. */
     int presetChecks()
     {
@@ -155,5 +191,6 @@ int main (int argc, char* argv[])
         failures += ok ? 0 : 1;
     }
     failures += presetChecks();
+    failures += licenceChecks();
     return failures == 0 ? 0 : 1;
 }

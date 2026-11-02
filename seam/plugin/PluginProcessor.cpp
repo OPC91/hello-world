@@ -61,6 +61,7 @@ namespace seam
     void SeamProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     {
         engine.prepare (sampleRate, samplesPerBlock);
+        demo.prepare (sampleRate);
     }
 
     void SeamProcessor::releaseResources() { engine.reset(); }
@@ -126,6 +127,7 @@ namespace seam
         }
 
         engine.process (buffer.getArrayOfWritePointers(), outChannels, numSamples, transport, readSettings());
+        demo.process (buffer.getArrayOfWritePointers(), outChannels, numSamples, licensing->isLicensed());
 
         const auto& tel = engine.telemetry();
         ui.playing.store (tel.playing);

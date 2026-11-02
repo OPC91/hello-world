@@ -124,3 +124,32 @@ TEST_CASE ("With the vacuum on, the fill finishes where the gap starts", "[vacuu
     CHECK (static_cast<double> (hits[0]) < gapStart);
     CHECK (static_cast<double> (hits[0]) > gapStart - 0.003 * 48000.0);
 }
+
+#include <exnilo/DemoGate.h>
+
+TEST_CASE ("Demo mode: 2 s of silence every 40 s, with short fades; nothing when licensed", "[demo]")
+{
+    exnilo::DemoGate gate;
+    gate.prepare (1000.0);   // 1 kHz keeps the numbers small: 40000-sample period, 2000-sample dropout, 10-sample fades
+    std::vector<float> ones (90000, 1.0f);
+    float* channels[1] { ones.data() };
+    for (int pos = 0; pos < 90000; pos += 777)
+    {
+        channels[0] = ones.data() + pos;
+        gate.process (channels, 1, std::min (777, 90000 - pos), false);
+    }
+    CHECK (ones[37980] == 1.0f);
+    CHECK (ones[37995] > 0.0f);
+    CHECK (ones[37995] < 1.0f);
+    for (size_t i = 38000; i < 39990; ++i)
+        REQUIRE (ones[i] == 0.0f);
+    CHECK (ones[40000] == 1.0f);
+    CHECK (ones[78500] == 0.0f);   // and again next period
+
+    exnilo::DemoGate licensed;
+    licensed.prepare (1000.0);
+    std::vector<float> clean (90000, 1.0f);
+    channels[0] = clean.data();
+    licensed.process (channels, 1, 90000, true);
+    CHECK (std::all_of (clean.begin(), clean.end(), [] (float v) { return v == 1.0f; }));
+}

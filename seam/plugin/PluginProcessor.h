@@ -5,6 +5,9 @@
 #include "Presets.h"
 #include "engine/SeamEngine.h"
 
+#include <exnilo/DemoGate.h>
+#include <exnilo_ui/exnilo_ui.h>
+
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include <array>
@@ -30,6 +33,19 @@ namespace seam
             left = peakLeft.exchange (0.0f);
             right = peakRight.exchange (0.0f);
         }
+    };
+
+    #ifndef SEAM_LEMON_STORE_ID
+     #define SEAM_LEMON_STORE_ID ""
+    #endif
+    #ifndef SEAM_LEMON_PRODUCT_ID
+     #define SEAM_LEMON_PRODUCT_ID ""
+    #endif
+
+    /** SEAM's licence (shared by every SEAM instance in the process). */
+    struct SeamLicensing final : exnilo::Licensing
+    {
+        SeamLicensing() : exnilo::Licensing ({ "SEAM", SEAM_LEMON_STORE_ID, SEAM_LEMON_PRODUCT_ID, "https://exnilo.co.uk/seam/", 2 }) {}
     };
 
     class SeamProcessor final : public juce::AudioProcessor
@@ -79,6 +95,8 @@ namespace seam
 
         static constexpr juce::int64 maxEmbeddedBytes = 32 * 1024 * 1024;
 
+        exnilo::Licensing& getLicensing() noexcept { return *licensing; }
+
         // --- Presets (message thread).
         exnilo::PresetStore& getPresets() noexcept { return presets; }
         juce::String getPresetName() const;
@@ -100,6 +118,8 @@ namespace seam
         FillWorker worker { engine, state };
         exnilo::PresetStore presets { "SEAM", presetParameterIds(), factoryPresets() };
         UiState ui;
+        juce::SharedResourcePointer<SeamLicensing> licensing;
+        exnilo::DemoGate demo;
         std::atomic<double> lastBpm { 174.0 };
         std::atomic<int> lastNumerator { 4 }, lastDenominator { 4 };
 

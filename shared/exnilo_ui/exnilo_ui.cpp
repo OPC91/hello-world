@@ -9,3 +9,4 @@
 #include "widgets/AdvancedPanel.cpp"
 #include "editor/ScaledEditor.cpp"
 #include "presets/PresetStore.cpp"
+#include "licensing/Licensing.cpp"

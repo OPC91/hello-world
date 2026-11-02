@@ -17,6 +17,8 @@ namespace seam
         static constexpr int baseHeight = 640;
 
         void setAdvancedVisible (bool);
+        void showLicenceMenu();
+        void enterLicenceKey();
 
         /** Steps the UI as if `seconds` had passed (offscreen snapshot tests). */
         void advanceForSnapshot (float seconds);
@@ -47,6 +49,7 @@ namespace seam
         exnilo::Wordmark wordmark { { { "SE", exnilo::Wordmark::Ink::plain }, { "AM", exnilo::Wordmark::Ink::gradient } } };
         juce::ComboBox themeBox;
         juce::TextButton advButton { "ADV" };
+        juce::TextButton demoButton { "DEMO: ACTIVATE" };
 
         // Main row
         exnilo::EnergyDisplay energy;
